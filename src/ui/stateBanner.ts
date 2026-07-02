@@ -24,10 +24,12 @@ export class StateBanner {
     // Re-render on any settings change. Cheap because render() short-circuits
     // when the active state is unchanged.
     const handler = (): void => this.render();
-    this.plugin.settingsManager.onChange(handler);
+    const off = this.plugin.settingsManager.onChange(handler);
     this.unsubscribe = () => {
-      // SettingsManager.onChange does not currently expose an off(), so we
-      // mark this banner as detached and let render() no-op after destroy.
+      // Release the settings listener (the tab constructs a new banner on every
+      // display(), so leaking here accumulates for the session - DA-09), and
+      // null the root so a render scheduled before destroy() no-ops.
+      off();
       this.root = null as unknown as HTMLElement;
     };
   }

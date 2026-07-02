@@ -115,8 +115,30 @@ export abstract class ObserverBase {
     this.rafQueued = true;
     requestAnimationFrame(() => {
       this.rafQueued = false;
-      for (const container of this.containers) this.apply(container);
+      for (const container of this.containers) {
+        // A closed leaf/view detaches its container, but nothing else removes
+        // it from the registry until plugin unload; without eviction every
+        // pass re-walks the dead subtree and the observer pins it in memory
+        // for the whole session (DA-10).
+        if (!container.isConnected) {
+          this.evictContainer(container);
+          continue;
+        }
+        this.apply(container);
+      }
     });
+  }
+
+  /**
+   * Stop observing a detached container and forget it. The observers entry must
+   * be deleted too: observeContainer dedupes on it, so a stale entry would
+   * block re-observing the same element if the host re-attaches it later
+   * (attachAll re-discovers returning panes on layout events).
+   */
+  private evictContainer(containerEl: HTMLElement): void {
+    this.observers.get(containerEl)?.disconnect();
+    this.observers.delete(containerEl);
+    this.containers.delete(containerEl);
   }
 
   protected apply(root: HTMLElement): void {
