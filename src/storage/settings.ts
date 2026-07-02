@@ -54,6 +54,12 @@ type LegacyV0Settings = Partial<TagCuratorSettings> & {
   dryRun?: boolean;
 };
 
+// Keys that only existed in the v0 (pre-schema) data.json shape. migrate()
+// consumes them for a genuine v0 file and strips them from its result so they
+// are never persisted; load() rewrites a file that still carries one, healing
+// files an earlier build persisted with the keys aboard (DA-01).
+const LEGACY_V0_KEYS = ['rules', 'enabledRules', 'dryRun', 'tagMetadata'] as const;
+
 export class SettingsManager {
   private plugin: Plugin;
   private settings: TagCuratorSettings = { ...DEFAULT_SETTINGS };
@@ -88,8 +94,12 @@ export class SettingsManager {
       );
       return;
     }
-    // Only persist when migrating UP; a current-version file needs no rewrite.
-    if (incomingVersion < SCHEMA_VERSION) {
+    // Persist when migrating UP, and also when the file still carries legacy
+    // v0 keys: migrate() strips them, so one rewrite heals a file an earlier
+    // build persisted with the keys aboard (DA-01). A current-version, clean
+    // file needs no rewrite.
+    const hasLegacyKeys = LEGACY_V0_KEYS.some((k) => k in raw);
+    if (incomingVersion < SCHEMA_VERSION || hasLegacyKeys) {
       await this.persist();
     }
   }
@@ -105,11 +115,16 @@ export class SettingsManager {
       // memory so an accidental write could not silently downgrade it (persist()
       // also blocks writes for future files; this is belt and suspenders).
       schemaVersion: Math.max(inferred, SCHEMA_VERSION),
-      customRules: Array.isArray(raw.rules)
-        ? raw.rules
-        : Array.isArray(base.customRules)
-          ? base.customRules
-          : [],
+      // Honor the legacy v0 `rules` key ONLY for a genuine pre-v1 file. An
+      // already-migrated file can still carry the stale key (earlier builds
+      // persisted it); re-honoring it there would overwrite the user's current
+      // customRules with the frozen v0 array on every load (DA-01).
+      customRules:
+        inferred < 1 && Array.isArray(raw.rules)
+          ? raw.rules
+          : Array.isArray(base.customRules)
+            ? base.customRules
+            : [],
     };
     if (inferred < 1) {
       const enabledIds = new Set(raw.enabledRules ?? []);
@@ -195,6 +210,11 @@ export class SettingsManager {
         merged.reviewedTags = {};
       }
     }
+    // The `...base` spread above copies any legacy v0 keys into the result;
+    // strip them so they never persist. A persisted `rules` key is what made
+    // the once-ungated re-read destructive in the first place (DA-01).
+    const scrubbed = merged as unknown as Record<string, unknown>;
+    for (const key of LEGACY_V0_KEYS) delete scrubbed[key];
     return merged;
   }
 

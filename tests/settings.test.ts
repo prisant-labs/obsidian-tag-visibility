@@ -108,6 +108,69 @@ describe('SettingsManager.load - v0 to v1 migration', () => {
   });
 });
 
+describe('SettingsManager - legacy v0 keys cannot resurrect (DA-01)', () => {
+  it('round-trip: rule edits made after a v0 migration survive the next load', async () => {
+    const plugin = pluginWith({
+      // no schemaVersion = v0
+      rules: [customRule({ id: 'old', enabled: true })],
+    });
+    // Load 1: a genuine v0 file migrates and honors `rules` once.
+    const first = new SettingsManager(plugin);
+    await first.load();
+    expect(first.get().customRules.map((r) => r.id)).toEqual(['old']);
+    // The user edits: adds a rule, deletes the migrated one.
+    await first.addCustomRule(customRule({ id: 'new', enabled: true }));
+    await first.deleteCustomRule('old');
+    // Load 2 (restart): the edits survive; the frozen v0 array must not return.
+    const second = new SettingsManager(plugin);
+    await second.load();
+    expect(second.get().customRules.map((r) => r.id)).toEqual(['new']);
+    expect(second.get().customRules[0]?.enabled).toBe(true);
+  });
+
+  it('strips the legacy v0 keys from the persisted file on migration', async () => {
+    const plugin = pluginWith({
+      rules: [customRule({ id: 'old' })],
+      enabledRules: ['old'],
+      dryRun: true,
+    });
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    const onDisk = plugin.data as Record<string, unknown>;
+    expect(onDisk.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(onDisk).not.toHaveProperty('rules');
+    expect(onDisk).not.toHaveProperty('enabledRules');
+    expect(onDisk).not.toHaveProperty('dryRun');
+    expect(onDisk).not.toHaveProperty('tagMetadata');
+    // The v0 content itself was still honored once on the way through.
+    expect(mgr.get().previewMode).toBe(true);
+    expect(mgr.get().customRules.map((r) => r.id)).toEqual(['old']);
+  });
+
+  it('heals a poisoned current-version file: stale `rules` never beats customRules', async () => {
+    // The shape an earlier build persisted: fully migrated, but with the legacy
+    // keys still aboard and customRules edited since the original migration.
+    const poisoned = {
+      ...DEFAULT_SETTINGS,
+      schemaVersion: SCHEMA_VERSION,
+      customRules: [customRule({ id: 'edited', enabled: true })],
+      rules: [customRule({ id: 'stale-v0', enabled: true })],
+      enabledRules: ['stale-v0'],
+    };
+    const plugin = pluginWith(poisoned);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    // The user's current rules win over the stale v0 array...
+    expect(mgr.get().customRules.map((r) => r.id)).toEqual(['edited']);
+    // ...and the file is rewritten once, clean of the legacy keys.
+    const onDisk = plugin.data as Record<string, unknown>;
+    expect(onDisk.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(onDisk).not.toHaveProperty('rules');
+    expect(onDisk).not.toHaveProperty('enabledRules');
+    expect((onDisk.customRules as Rule[]).map((r) => r.id)).toEqual(['edited']);
+  });
+});
+
 describe('SettingsManager mutations', () => {
   it('update merges partials and persists', async () => {
     const plugin = pluginWith(null);
