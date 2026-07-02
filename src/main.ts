@@ -81,7 +81,22 @@ export default class TagCuratorPlugin extends Plugin {
 
     // Notebook Navigator scope (Phase 5B). Detection-gated: absent = silent
     // no-op, too-old = one-time notice + skip, ready + scope enabled = wire it.
-    this.setupNotebookNavigator(settings);
+    // Deferred to onLayoutReady: community plugins load sequentially in enable
+    // order, so probing the registry synchronously here reads NN as absent in
+    // any vault where this plugin loads before NN - permanently, every session
+    // (DA-02). onLayoutReady fires after every enabled plugin has loaded. The
+    // try/catch keeps third-party API drift inside the NN seam from escaping
+    // as an uncaught error (DA-16).
+    this.app.workspace.onLayoutReady(() => {
+      try {
+        this.setupNotebookNavigator(this.settingsManager.get());
+      } catch (e) {
+        console.error(
+          '[tag-visibility] Notebook Navigator integration failed to attach; the NN scope is off for this session.',
+          e,
+        );
+      }
+    });
 
     // Properties scope (Phase 6). Properties is core Obsidian, so unlike NN this
     // needs NO detection: always construct, seed, and init. The per-scope kill
@@ -109,7 +124,7 @@ export default class TagCuratorPlugin extends Plugin {
     this.autocompleteObserver.init();
 
     // The legacy "Vault tags" TagListView (D-012) was retired pre-1.0: the
-    // Curation Workspace pane plus the All Tags settings tab are the single
+    // Curation Workspace pane plus the All tags settings tab are the single
     // tag-surface family, so the old leaf no longer registers or opens.
     this.registerView(
       CURATION_VIEW_TYPE,
@@ -194,7 +209,7 @@ export default class TagCuratorPlugin extends Plugin {
       name: 'Open the panel',
       callback: () => {
         if (!this.settingsManager.get().paneEnabled) {
-          new Notice('Enable the Tag Visibility Pane in Settings -> General to dock it.');
+          new Notice('Enable the Tag Visibility pane in Settings -> General to dock it.');
           return;
         }
         void this.openCurationWorkspace();
@@ -205,7 +220,7 @@ export default class TagCuratorPlugin extends Plugin {
       name: 'Open beside the tag pane',
       callback: () => {
         if (!this.settingsManager.get().paneEnabled) {
-          new Notice('Enable the Tag Visibility Pane in Settings -> General to dock it.');
+          new Notice('Enable the Tag Visibility pane in Settings -> General to dock it.');
           return;
         }
         void this.openBesideTagPane();

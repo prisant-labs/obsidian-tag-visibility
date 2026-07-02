@@ -75,6 +75,12 @@ export function subscribeReapply(
   api: NotebookNavigatorApi,
   cb: () => void,
 ): () => void {
+  // Feature-detect the event seam: a future NN that passes the version gate but
+  // reshapes on/off must degrade to "no live re-decoration", never a TypeError
+  // at subscribe or unsubscribe time (DA-16).
+  if (typeof api.on !== 'function' || typeof api.off !== 'function') {
+    return () => {};
+  }
   for (const ev of REAPPLY_EVENTS) api.on(ev, cb);
   return () => {
     for (const ev of REAPPLY_EVENTS) api.off(ev, cb);
