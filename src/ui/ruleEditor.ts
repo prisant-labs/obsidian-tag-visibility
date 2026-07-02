@@ -23,7 +23,6 @@ import {
   MatchCriteria,
   MatchType,
   Rule,
-  Scope,
   TagMeta,
 } from '../types';
 import { RuleEngine } from '../engine/ruleEngine';
@@ -380,9 +379,12 @@ export class RuleEditor {
         input.value = (draft.match.list ?? []).join(', ');
         input.placeholder = 'wip, todo, fixme';
         input.addEventListener('input', () => {
+          // Strip a typed leading '#': the engine matches hash-less tag names,
+          // so `#wip` entered here would otherwise silently never match (DA-12).
           const list = input.value
             .split(',')
             .map((s) => s.trim())
+            .map((s) => (s.startsWith('#') ? s.slice(1) : s))
             .filter(Boolean);
           draft.match = { type: 'list', list };
           this.renderPreviewForRule(draft);
@@ -645,7 +647,9 @@ export class RuleEditor {
   }
 
   private renderOverrideActions(parent: HTMLElement, tag: string): void {
-    const current = this.plugin.settingsManager.get().overrides[tag];
+    const overrides = this.plugin.settingsManager.get().overrides;
+    // Own-property guard (DA-08): see RuleEngine.resolveVisibility.
+    const current = Object.hasOwn(overrides, tag) ? overrides[tag] : undefined;
     const wrap = parent.createDiv({ cls: 'tcr-pd-ov' });
     wrap.createSpan({ cls: 'tcr-pd-kv-key', text: 'Override' });
     const btns = wrap.createDiv({ cls: 'tcr-pd-ov-btns' });

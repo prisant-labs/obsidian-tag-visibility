@@ -171,7 +171,10 @@ export class RuleEngine {
     rules: Rule[],
     overrides: Record<string, TagOverride>,
   ): RuleAttribution {
-    const override = overrides[tag];
+    // Own-property guard: a vault tag literally named `constructor`/`toString`
+    // etc. must not resolve an inherited Object.prototype member as a phantom
+    // always-hide override (DA-08).
+    const override = Object.hasOwn(overrides, tag) ? overrides[tag] : undefined;
     if (override) {
       const effective = attributeOverride(override);
       return { tag, effective, allMatches: [effective] };

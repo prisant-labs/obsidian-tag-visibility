@@ -50,4 +50,18 @@ describe('RuleEngine.resolveVisibility - override precedence (D-015)', () => {
     const result = RuleEngine.resolveVisibility('miss', undefined, [hideRule('other')], {});
     expect(result.effective).toBeNull();
   });
+
+  it('a tag named like an Object.prototype member is not a phantom override (DA-08)', () => {
+    for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      const result = RuleEngine.resolveVisibility(tag, undefined, [], {});
+      expect(result.effective).toBeNull();
+    }
+  });
+
+  it('an explicit override on a prototype-named tag still applies (DA-08)', () => {
+    const overrides: Record<string, TagOverride> = {};
+    overrides['constructor'] = 'hide';
+    const result = RuleEngine.resolveVisibility('constructor', undefined, [], overrides);
+    expect(result.effective?.overrideReason).toBe('always-hide');
+  });
 });

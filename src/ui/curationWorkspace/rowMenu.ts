@@ -39,7 +39,9 @@ export function overrideMenuSpecs(
     { title: 'Always show', icon: 'eye', intent: 'show' },
     { title: 'Always hide', icon: 'eye-off', intent: 'hide' },
   ];
-  if (overrides[tag]) {
+  // Object.hasOwn: a tag named like an Object.prototype member must not read an
+  // inherited function as a fake override (DA-08).
+  if (Object.hasOwn(overrides, tag)) {
     specs.push({ title: 'Clear override', icon: 'rotate-ccw', intent: 'clear' });
   }
   return specs;
