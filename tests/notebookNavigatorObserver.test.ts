@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Plugin, View, WorkspaceLeaf } from 'obsidian';
 import { NotebookNavigatorObserver } from '../src/observers/notebookNavigatorObserver';
-import { Rule, TagMeta } from '../src/types';
+import { Rule } from '../src/types';
 
 // plugin-namespaced decoration classes / marker. Never nn-*.
 const HIDDEN_CLASS = 'tc-nn-hidden';
@@ -21,16 +21,6 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     priority: 50,
     match: { type: 'list', list: ['photo'] },
     action: 'hide',    ...overrides,
-  };
-}
-
-function meta(tag: string, count: number): TagMeta {
-  return {
-    tag,
-    firstSeen: 0,
-    lastSeen: 0,
-    count,
-    sources: ['inline'],
   };
 }
 

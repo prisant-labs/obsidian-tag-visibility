@@ -81,7 +81,7 @@ export interface EventRef {
 
 export class Plugin {
   data: unknown = null;
-  manifest: { id: string; dir?: string } = { id: 'tag-curator' };
+  manifest: { id: string; dir?: string } = { id: 'tag-visibility' };
   registeredEvents: EventRef[] = [];
   registeredCleanups: Array<() => void> = [];
 
