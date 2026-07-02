@@ -10,9 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- **Tag Visibility panel**: a dockable, splittable pane (not a settings screen) holding the tag table, filter chips, bulk actions, per-tag overrides, and per-row "why is this affected?" diagnostics. The table shows count, when a tag was last indexed, source, a visibility indicator, and the affecting rule; it is sortable, searchable, and virtualized for large vaults. The panel is opt-in (an Enable toggle gates it) and has two modes: **View** (browse tags, tap a tag to search for it) and **Manage** (the full grid). Rules are authored in Settings > Custom rules, which carries the card-based editor and its live preview.
+- **Tag Visibility panel**: a dockable, splittable pane (not a settings screen) holding the tag table, filter chips, bulk actions, per-tag overrides, and per-row "why is this affected?" diagnostics. The table shows count, when a tag was last indexed, source, a visibility indicator, and the affecting rule; it is sortable, searchable, and virtualized for large vaults. The panel ships enabled, with an Enable toggle in General that removes the ribbon icon and pane when off, and has two modes: **View** (browse tags, tap a tag to search for it) and **Manage** (the full grid). Rules are authored in Settings > Custom rules, which carries the card-based editor and its live preview.
 - **Open beside the tag pane**: the command opens the panel and the native tag pane as a split in one move, so your full tag inventory sits beside Obsidian's own list and both update as rules and overrides change.
-- **All Tags settings tab**: the full Manage grid is also available directly in Settings, to control tag visibility without opening the panel.
+- **All tags settings tab**: the full Manage grid is also available directly in Settings, to control tag visibility without opening the panel.
 - **Reviewed triage**: a per-tag reviewed flag with Mark reviewed / unreviewed (row and bulk), a reviewed-row marker, and an Unreviewed filter, so a large tag set can be worked down like an inbox.
 - **Per-tag overrides**: always-show and always-hide, a persisted per-tag decision that beats every rule. Always-show wins over everything (the safety net); always-hide beats every rule but yields to always-show. Overrides resolve ahead of rules, and the rule editor's preview accordion exposes per-row override pins.
 - **Flag as a rule action**: besides hiding, a rule can flag its matched tags with a persistent accent mark (visible in both normal and preview mode, distinct from the amber preview highlight); the rule editor offers Hide and Flag.
@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Autocomplete scope**: hidden tags stop being suggested in the editor's tag autocomplete, so junk does not creep back.
 - **Filtering**: one-click filter chips (relocated below the search bar): All, a **Visible** (shown-only) filter, Hidden, Flagged, Orphans, Frontmatter, Inline, and Unreviewed, plus a by-rule dropdown. A column selector and per-surface columns tailor the table to each host.
 - **Presets**: each preset shows a live affected-count that clicks through to the matching tags.
-- **Thin Settings**: Settings becomes set-once config, consolidated from an earlier ten-tab layout into a focused set (General, All Tags, Scopes & integrations, Presets, Custom rules, Advanced, Help). Integration rows show status pills and action links.
+- **Thin Settings**: Settings becomes set-once config, consolidated from an earlier ten-tab layout into a focused set (General, All tags, Scopes & integrations, Presets, Custom rules, Advanced, Help). Integration rows show status pills and action links.
 - **Style Settings registration**: CSS variables registered with Style Settings so themers and power users can restyle hidden and flagged tags with no code; sensible defaults apply when Style Settings is absent.
 - **Tag Wrangler delegation**: a per-row "Rename with Tag Wrangler" menu item and a bulk "Send to Tag Wrangler" action when Tag Wrangler is present; gracefully hidden or disabled when absent.
 - **Trust layer polish**: a welcome modal that leads with the plugin name and de-overclaims, the persistent non-default-state banner, panic disable that clears every scope at once, and an honest, scope-independent status bar.
@@ -42,7 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Migration
 
-- Settings schema advances to **v10**, automatic and additive. Early steps introduce the per-tag `overrides` store (defaulting to `{}`) and per-scope enables; later steps add the opt-in pane state (`paneEnabled`), per-surface column preferences, and move the reviewed flag into durable settings (`reviewedTags`). Migrations are one-way and guarded; writes use the existing atomic write-temp-then-rename. No user action required.
+- Settings schema advances to **v10**, automatic and additive. Early steps introduce the per-tag `overrides` store (defaulting to `{}`) and per-scope enables; later steps add the pane availability state (`paneEnabled`, on by default), per-surface column preferences, and move the reviewed flag into durable settings (`reviewedTags`). Migrations are one-way and guarded, and a `data.json` written by a newer plugin version is treated as read-only so it can never be downgraded. No user action required.
 
 ### Known limitations
 

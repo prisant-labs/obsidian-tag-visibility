@@ -23,6 +23,7 @@
 
 <p>
   <a href="https://github.com/prisant-labs/obsidian-tag-visibility/releases"><img src="https://img.shields.io/github/v/release/prisant-labs/obsidian-tag-visibility?include_prereleases&sort=semver&style=flat-square&label=release&color=orange" alt="Latest release"></a>
+  <a href="https://github.com/prisant-labs/obsidian-tag-visibility/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/prisant-labs/obsidian-tag-visibility/build.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License: Apache 2.0"></a>
   <img src="https://img.shields.io/badge/Obsidian-1.9.10%2B-7c3aed?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian 1.9.10+">
   <a href="#contributing"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs welcome"></a>
@@ -150,7 +151,7 @@ BRAT offers updates automatically whenever a new beta is published.
 The Tag Visibility panel is where you browse and triage tags. It holds:
 
 - **The tag table.** Every tag in your vault with its count, when it was last indexed, source (frontmatter or inline), a visibility indicator, and the rule (if any) affecting it. Sortable, searchable, virtualized for large vaults.
-- **Filter chips.** One-click filters: All, Visible, Hidden, Orphans, Flagged, Frontmatter, Inline, Unreviewed, plus a by-rule selector.
+- **Filter chips.** One-click filters: All, Visible, Hidden, Orphans, Flagged, Frontmatter, Inline, Unreviewed. (A by-rule filter is additionally available in the Settings > All tags grid.)
 - **View and Manage modes.** View browses tags (tap a tag to search for it); Manage is the full grid with selection, bulk actions, and overrides.
 - **Bulk actions.** Select several tags, then hide, unhide, mark reviewed, or send them to Tag Wrangler in one action.
 - **Per-tag overrides.** Pin any row to always-show (the safety net) or always-hide, ahead of every rule.
@@ -234,8 +235,8 @@ Obsidian lists these under the **Tag Visibility** prefix in the command palette:
 
 Settings is set-once config, not a workbench. The work happens in the Tag Visibility panel. Settings holds:
 
-- **General**: master enable, preview mode, the opt-in panel toggle, and the safety row (panic disable).
-- **All Tags**: the full Manage grid, available directly in Settings without opening the panel.
+- **General**: master enable, preview mode, the panel toggle (on by default; turn it off to remove the ribbon icon and pane), and the safety row (panic disable).
+- **All tags**: the full Manage grid, available directly in Settings without opening the panel.
 - **Scopes & integrations**: a per-scope kill switch for each of the four scopes, plus Tag Wrangler, Style Settings, and Notebook Navigator status.
 - **Presets** and **Custom rules**: manage the rule set (the rule editor with its live preview lives here).
 - **Advanced**: index maintenance and sidecar debounce.

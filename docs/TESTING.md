@@ -1,6 +1,10 @@
 # Testing Guide
 
-How to verify Tag Visibility before tagging a release. The **v1.0 manual smoke matrix** below is the current gate. The detailed v0.1 checklist that follows it is retained as historical reference only: it predates the v1.0 UI, and its specifics (Settings tabs, commands, schema numbers, rule actions) are stale. Gate a release on the v1.0 matrix, not the v0.1 checklist.
+How to verify Tag Visibility before tagging a release. The **v1.0 manual smoke matrix** and the
+**pane and Settings detail checks** below are the current gate; the automated side (lint, typecheck,
+tests, build) is described in [CI.md](CI.md). The detailed v0.1 checklist at the bottom is retained as
+historical reference only: it predates the v1.0 UI, and its specifics (Settings tabs, commands, schema
+numbers, rule actions) are stale. Gate a release on the current sections, not the v0.1 checklist.
 
 ## Local Testing Setup
 
@@ -47,7 +51,9 @@ Walk this before tagging v1.0. It is the current gate. (The v0.1 checklist furth
 Hiding a tag should, by default, hide it consistently across all four scopes. Confirm each surface reacts:
 
 - [ ] **Tag pane.** A hidden tag disappears (or flags in preview mode) in the native tag pane, and its space is reclaimed: the list packs with no blank band where the tag was, and un-hiding restores the row's height.
+- [ ] **Tag pane, nested display.** With "Show nested tags" on and a nested tag such as `#a/b` in the vault: hiding `a/b` (list rule or always-hide pin) hides its child row, and a rule matching only a bare `b` does NOT hide `a/b`'s row. (Guards the leaf-segment row-resolution risk in hierarchy mode.)
 - [ ] **Notebook Navigator.** Requires a real Notebook Navigator vault (>= 2.0.0). A hidden tag is **dimmed and struck through** (still clickable) in NN's tag tree; a flagged tag shows the flag accent. **Click a dimmed tag**: the strikethrough survives selection (a one-frame blink is fine; staying lost is a failure). With NN absent, this scope is a **silent no-op** (no errors, nothing logged at non-debug levels).
+- [ ] **Notebook Navigator load order.** In a vault where Tag Visibility was enabled BEFORE Notebook Navigator (or after toggling NN off and on, then restarting), NN rows still decorate after a restart. (Guards the plugin-load-order regression: detection defers to `onLayoutReady`.)
 - [ ] **Properties.** Requires a note with frontmatter `tags:`. Open that note's Properties panel and confirm a hidden tag is hidden/flagged there.
 - [ ] **Autocomplete.** In the editor, type `#` and start a hidden tag's name; confirm the hidden tag is not offered as a suggestion (suggestions render as bare names on Obsidian 1.12+; detection is context-based). Then type `[[` + a note name + `#`: heading suggestions must be unaffected, even for headings that look like hidden tags.
 
@@ -88,9 +94,119 @@ Sample cells A-F across these environments before tagging:
 
 If any cell fails, fix and re-run that cell before tagging.
 
+## H. Pane and Settings detail checks
+
+Current-behavior spot checks that complement the smoke matrix. These were introduced with the v1.0 UI work and remain part of the gate.
+
+### H1. Pane View/Manage modes
+
+- [ ] Pane opens in View: tag names are links that open a tag search; no checkboxes/bulk bar/row menu; a Filters disclosure expands/collapses the chip row. Switch to Manage: checkboxes, bulk bar, and row menus return and chips show normally. The All tags settings tab is unaffected (always full Manage). Header and rows stay column-aligned in View.
+
+### H2. Split Rules tabs
+
+- [ ] Settings shows Presets and Custom rules as separate tabs, each with a count badge; the old combined Rules tab is gone.
+
+### H3. Help tab compact command table
+
+- [ ] Help tab shows commands as a compact two-column table (name + description), not a tall list of setting rows; FAQ and About still present.
+
+### H4. Panel toolbar layout
+
+- [ ] The panel toolbar shows the search box on top and the filter chips on their own row directly beneath it (not side by side).
+
+### H5. Row menu: Mark reviewed / Mark unreviewed
+
+- [ ] Row menu shows "Mark reviewed"; after clicking it, re-opening the same row's menu shows "Mark unreviewed", and the tag leaves the Unreviewed filter.
+
+### H6. Bulk bar: Mark reviewed
+
+- [ ] Select 2 or more tags, click Mark reviewed in the bulk bar: all selected tags leave the Unreviewed filter.
+
+### H7. Settings All tags tab
+
+- [ ] Settings -> All tags shows the full Manage grid (search, chips, selection, bulk bar, row menu, virtual scroll). Switching to another tab and back, and closing/reopening Settings, does not duplicate rows or leak scroll listeners.
+
+### H8. Enable Tag Visibility pane toggle
+
+- [ ] General has no Open button. Toggling Enable Tag Visibility pane OFF removes the ribbon icon and closes any open Tag Visibility pane; toggling ON restores the ribbon. With the pane OFF, the 'Open the panel' / 'Open beside the tag pane' commands show a Notice. The Presets-tab 'N tags affected' deep-link and the status-bar click still open the pane regardless (they are not gated).
+
+### H9. Rule deep-link opens pane in Manage mode
+
+- [ ] Clicking a Presets 'N tags affected' deep-link opens the pane in Manage mode (checkboxes/bulk available) filtered to that rule's tags. The status-bar click still opens in the default View.
+
+### H10. Cross-surface refresh and subscription hygiene
+
+- [ ] After a preset deep-link (clicking "N tags affected" in Presets tab), clicking the status bar shows ALL hidden tags (the rule filter is cleared, not narrowed to the prior rule).
+- [ ] With the All tags settings tab open, external changes (toggling a rule, rescanning vault tags) refresh the table without closing and reopening Settings.
+- [ ] Switching between Custom rules and All tags tabs repeatedly does not leak editor or table subscriptions (confirmed via zero extra settingsManager listener warnings in the console).
+
+## Pre-release gate (CI-side, before tag)
+
+Before tagging (see [CI.md](CI.md) for the full pipeline):
+
+1. `npm run lint` - must pass (`--max-warnings 0`).
+2. `npm run typecheck` - tsc clean.
+3. `npm test` - the full vitest suite must pass.
+4. `npm run build` - artifacts written.
+5. Walk the smoke matrix and detail checks above.
+6. Merge to `main` and wait for the GitHub Actions `build.yml` run to go green **before** pushing the tag: the tag-triggered `release.yml` re-runs the same gate at the tagged commit, and a red gate after the tag push means delete-tag-and-retag.
+7. Update `CHANGELOG.md`: roll the `Unreleased` heading to the release date and drop any "pending" notes.
+8. Confirm `manifest.json` version + `versions.json` entry + `package.json` version all match (the `npm version` script keeps them in sync).
+
+## Debugging
+
+### Common Issues
+
+**Tags still showing after enabling a rule?**
+
+- Confirm the rule's enable toggle is on (the left-edge toggle on its card in Settings > Custom rules).
+- Open the Tag Visibility panel, find the tag, and check its visibility indicator; if it reads as shown, no enabled rule matched it.
+- Open the rule in edit mode and check the live preview; it shows matches as you type.
+
+**Rule not matching as expected?**
+
+- For regex rules, the field shows live `✓ valid` / `✗ {error}` status.
+- The editor's live preview lists every tag the current pattern matches; if it is empty, the pattern probably does not match what you think.
+- Remember tag names are matched **without** the leading `#` (the rule editor strips a typed `#` from list entries for you).
+
+**Welcome modal doesn't appear on what should be a fresh install?**
+
+- Check `data.json`'s `seenWelcomeModal`. If true, the modal won't fire. Set it to `false` and reload to retest.
+
+**State banner doesn't appear when expected?**
+
+- The banner only shows for non-default states (Preview on, or plugin disabled). In the default enabled state, no banner is shown - that's correct.
+
+**Performance issues?**
+
+- Settings > Advanced > Index maintenance > Last full reindex shows the current tag count. If it's surprisingly large, you may have a vault that just needs the one-time scan to settle.
+- Disable unused presets and rules.
+- Sidecar debounce is 5000ms by default - lower values write more often.
+
+## Reporting Issues
+
+If you find issues during testing:
+
+1. Note the exact steps to reproduce.
+2. Include vault size (number of notes/tags).
+3. Share browser console errors.
+4. Describe expected vs. actual behavior.
+5. Open a GitHub issue with this information; link to the relevant checklist section above.
+
+## Testing on Different Systems
+
+Verify on:
+
+- Windows desktop with Obsidian
+- macOS desktop with Obsidian
+- Linux desktop with Obsidian (if available)
+- iOS Obsidian Mobile (cell 4)
+
+The plugin is **not** desktop-only (`isDesktopOnly: false`), so mobile must work; the only desktop-specific surface is the status bar (Obsidian doesn't render one on mobile).
+
 ---
 
-> **Historical (v0.1), superseded.** Everything below predates the v1.0 UI and is retained for reference only. It describes tabs, commands, columns, rule actions, and schema numbers that no longer match the shipped plugin (for example: an 8-tab Settings layout with Profiles/Aliases, `open-tag-list` commands, a "First seen" column, show-only/group actions, a per-rule Scope dropdown, a debug-logging toggle, and `schemaVersion: 3`). Do NOT use it to gate a release; the v1.0 smoke matrix above is the current gate.
+> **Historical (v0.1), superseded.** Everything below predates the v1.0 UI and is retained for reference only. It describes tabs, commands, columns, rule actions, and schema numbers that no longer match the shipped plugin (for example: an 8-tab Settings layout with Profiles/Aliases, `open-tag-list` commands, a "First seen" column, show-only/group actions, a per-rule Scope dropdown, a debug-logging toggle, and `schemaVersion: 3`). Do NOT use it to gate a release; the current sections above are the gate.
 
 ## What v0.1 ships
 
@@ -293,7 +409,7 @@ For each cell, sample these from the full checklist:
 
 If any cell fails, fix and re-run that cell before tagging.
 
-## Tagging the release
+## Tagging the release (v0.1 procedure)
 
 After all 6 cells pass:
 
@@ -311,118 +427,4 @@ git push origin main
 git push origin 0.1.0
 ```
 
-### 16. Pane View/Manage modes (Task 16)
-
-Pane opens in View: tag names are links that open a tag search; no checkboxes/bulk bar/row menu; a Filters disclosure expands/collapses the chip row. Switch to Manage: checkboxes, bulk bar, and row menus return and chips show normally. The All Tags settings tab is unaffected (always full Manage). Header and rows stay column-aligned in View.
-
 The tag push triggers `.github/workflows/release.yml`, which uploads `manifest.json`, `main.js`, `styles.css`, and `versions.json` to the GitHub release.
-
-## Debugging
-
-### Enable Debug Logging
-
-1. Open **Tag Visibility settings > Advanced**.
-2. Toggle **Debug logging** on.
-3. Open the browser console (Ctrl+Shift+I in desktop Obsidian).
-4. Look for `[tag-curator]` prefixed log lines.
-
-### Common Issues
-
-**Tags still showing after enabling a rule?**
-
-- Confirm the rule's enable toggle is on (in the card view, the left-edge toggle).
-- Open the Tag list view, find the tag, check the `Visible?` column - if it says `shown`, no enabled rule matched it.
-- Hover the column's `?` icon for visibility definitions.
-- Open the rule in edit mode and check the right-docked preview - it shows live matches as you type.
-
-**Rule not matching as expected?**
-
-- For regex rules, the field shows live `✓ valid` / `✗ {error}` status.
-- The right-docked preview lists every tag the current pattern matches; if it's empty, the pattern probably doesn't match what you think.
-- Remember tag names are matched **without** the leading `#`.
-
-**Welcome modal doesn't appear on what should be a fresh install?**
-
-- Check `data.json`'s `seenWelcomeModal`. If true, the modal won't fire. Set it to `false` and reload to retest.
-
-**State banner doesn't appear when expected?**
-
-- The banner only shows for non-default states (Preview on, or plugin disabled). In the default enabled state, no banner is shown - that's correct.
-
-**Performance issues?**
-
-- Settings > Advanced > Index maintenance > Last full reindex shows the current tag count. If it's surprisingly large, you may have a vault that just needs the one-time scan to settle.
-- Disable unused presets and rules.
-- Sidecar debounce is 5000ms by default - lower values write more often.
-
-## Pre-Release Testing (CI-side, before tag)
-
-Before tagging:
-
-1. `npm run lint` - must pass (`--max-warnings 0`).
-2. `npm test` - all unit + migration tests must pass (currently 122/122).
-3. `npm run typecheck` - tsc clean.
-4. `npm run build` - artifacts written.
-5. Walk the BRAT smoke matrix above.
-6. Verify GitHub Actions CI passes on `release/v0.1.0`.
-7. Update `CHANGELOG.md` with any post-merge fixes.
-8. Confirm `manifest.json` version + `versions.json` entry + `package.json` version all match.
-
-### 16. Split Rules tabs
-
-- [ ] Settings shows Presets and Custom rules as separate tabs, each with a count badge; the old combined Rules tab is gone.
-
-### 17. Help tab compact command table
-
-- [ ] Help tab shows commands as a compact two-column table (name + description), not a tall list of setting rows; FAQ and About still present.
-
-## Reporting Issues
-
-If you find issues during testing:
-
-1. Note the exact steps to reproduce.
-2. Include vault size (number of notes/tags).
-3. Share browser console errors.
-4. Describe expected vs. actual behavior.
-5. Open a GitHub issue with this information; link to the relevant checklist section above.
-
-## Testing on Different Systems
-
-Verify on:
-
-- Windows desktop with Obsidian
-- macOS desktop with Obsidian
-- Linux desktop with Obsidian (if available)
-- iOS Obsidian Mobile (cell 4)
-
-The plugin is **not** desktop-only (`isDesktopOnly: false`), so mobile must work; the only desktop-specific surface is the status bar (Obsidian doesn't render one on mobile).
-
-### 18. Panel toolbar layout
-
-- [ ] The panel toolbar shows the search box on top and the filter chips on their own row directly beneath it (not side by side).
-
-### 19. Row menu: Mark reviewed / Mark unreviewed
-
-- [ ] Row menu shows "Mark reviewed"; after clicking it, re-opening the same row's menu shows "Mark unreviewed", and the tag leaves the Unreviewed filter.
-
-### 20. Bulk bar: Mark reviewed
-
-- [ ] Select 2 or more tags, click Mark reviewed in the bulk bar: all selected tags leave the Unreviewed filter.
-
-### 21. Settings All Tags tab
-
-- [ ] Settings -> All Tags shows the full Manage grid (search, chips, selection, bulk bar, row menu, virtual scroll). Switching to another tab and back, and closing/reopening Settings, does not duplicate rows or leak scroll listeners.
-
-### 22. Enable Tag Visibility Pane toggle
-
-- [ ] General has no Open button. Toggling Enable Tag Visibility Pane OFF removes the ribbon icon and closes any open Tag Visibility pane; toggling ON restores the ribbon. With the pane OFF, the 'Open the panel' / 'Open beside the tag pane' commands show a Notice. The Presets-tab 'N tags affected' deep-link and the status-bar click still open the pane regardless (they are not gated).
-
-### 23. Rule deep-link opens pane in Manage mode
-
-- [ ] Clicking a Presets 'N tags affected' deep-link opens the pane in Manage mode (checkboxes/bulk available) filtered to that rule's tags. The status-bar click still opens in the default View.
-
-### 24. Phase 3 adversarial review fixes (F-1, F-2, F-3)
-
-- [ ] After a preset deep-link (clicking "N tags affected" in Presets tab), clicking the status bar shows ALL hidden tags (the rule filter is cleared, not narrowed to the prior rule).
-- [ ] With the All Tags settings tab open, external changes (toggling a rule, rescanning vault tags) refresh the table without closing and reopening Settings.
-- [ ] Switching between Custom rules and All Tags tabs repeatedly does not leak editor or table subscriptions (confirmed via zero extra settingsManager listener warnings in the console).

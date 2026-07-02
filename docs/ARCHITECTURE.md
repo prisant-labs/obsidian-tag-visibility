@@ -78,7 +78,7 @@ src/
     notebookNavigator.ts        # detect + reapply subscription
     notebookNavigatorApi.ts
   ui/
-    settingsTab.ts              # Tabbed settings (General, All Tags, Scopes, Presets, ...)
+    settingsTab.ts              # Tabbed settings (General, All tags, Scopes, Presets, ...)
     ruleEditor.ts               # Card-based rule editor + live preview
     stateBanner.ts              # Persistent non-default-state banner
     welcomeModal.ts             # First-run onboarding
@@ -191,7 +191,7 @@ sequenceDiagram
 
 Two files, deliberately split to avoid write races:
 
-- **`data.json`** (`SettingsManager`) - schema-versioned settings: rules, enabled presets, scope kill switches, per-tag overrides, preview/enabled flags, pane state. Migrations are one-way, additive, and guarded; writes are atomic (write-temp-then-rename).
+- **`data.json`** (`SettingsManager`) - schema-versioned settings: rules, enabled presets, scope kill switches, per-tag overrides, preview/enabled flags, pane state. Migrations are one-way, additive, and guarded; writes go through Obsidian's plugin-data API (`Plugin.saveData`), and a file written by a newer plugin version is treated as read-only so an older build can never downgrade it.
 - **`tags.json`** (`TagMetaManager`) - the tag-metadata sidecar: count, first seen, last seen, and source per tag. Writes are debounced (default 5000 ms) to avoid disk churn while editing. This is the plugin's own derived index, not note content.
 
 ## Reversibility and safety
