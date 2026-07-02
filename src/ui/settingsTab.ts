@@ -41,7 +41,7 @@ export class TagCuratorSettingTab extends PluginSettingTab {
   private curateOffSettings: (() => void) | null = null;
   private curateMetaRef: EventRef | null = null;
   private ruleEditor: RuleEditor | null = null;
-  // The rule id the All Tags table is filtered to (null = all tags). Driven
+  // The rule id the All tags table is filtered to (null = all tags). Driven
   // by the "Filter by rule" selector and by a Presets deep-link (3-1).
   private curateRuleFilter: string | null = null;
   // Set by a Presets "N tags affected" click just before switching tabs;
@@ -134,7 +134,7 @@ export class TagCuratorSettingTab extends PluginSettingTab {
 
     return [
       { id: 'general', label: 'General', render: (p) => this.renderGeneral(p) },
-      { id: 'curate', label: 'All Tags', render: (p) => this.renderCurate(p) },
+      { id: 'curate', label: 'All tags', render: (p) => this.renderCurate(p) },
       {
         id: 'scopes',
         label: 'Scopes & integrations',
@@ -208,7 +208,7 @@ export class TagCuratorSettingTab extends PluginSettingTab {
     new Setting(panel)
       .setName('Enable Tag Visibility pane')
       .setDesc(
-        'Also surface the tag list as a dockable sidebar pane you can keep open beside the native tag pane. The list always lives in the All Tags tab; this adds the docked option.',
+        'Also surface the tag list as a dockable sidebar pane you can keep open beside the native tag pane. The list always lives in the All tags tab; this adds the docked option.',
       )
       .addToggle((t) =>
         t.setValue(s.paneEnabled).onChange(async (v) => {
@@ -266,7 +266,7 @@ export class TagCuratorSettingTab extends PluginSettingTab {
   }
 
   // -----------------------------------------------------------------
-  // All Tags - always-Manage grid
+  // All tags - always-Manage grid
   // -----------------------------------------------------------------
 
   private renderCurate(panel: HTMLElement): void {
@@ -529,12 +529,12 @@ export class TagCuratorSettingTab extends PluginSettingTab {
       const navigate = (e: Event): void => {
         e.preventDefault();
         // Only navigate when the preset is active: its rule is then in the
-        // engine, so the All Tags filter has tags to show. When off, the
+        // engine, so the All tags filter has tags to show. When off, the
         // "would hide N tags" label is informational, not a link (3-1).
         if (!this.plugin.settingsManager.get().enabledPresets.includes(preset.id)) {
           return;
         }
-        // Stay inside Settings: jump to the All Tags tab pre-filtered to this
+        // Stay inside Settings: jump to the All tags tab pre-filtered to this
         // preset instead of opening the pane behind the Settings window.
         this.pendingRuleFilter = preset.id;
         this.activeTab = 'curate';

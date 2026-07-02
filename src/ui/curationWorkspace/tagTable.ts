@@ -119,7 +119,7 @@ const OPTIONAL_COLS: Array<[keyof TableColumnPrefs, string]> = [
 
 const DEFAULT_COLS: TableColumnPrefs = { lastSeen: true, source: true, rule: true };
 
-/** Optional Filter-by-rule dropdown config (the settings All Tags tab passes it). */
+/** Optional Filter-by-rule dropdown config (the settings All tags tab passes it). */
 export interface RuleFilterConfig {
   options: Array<{ id: string; name: string }>;
   current: string | null;
