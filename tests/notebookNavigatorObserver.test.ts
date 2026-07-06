@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Plugin, View, WorkspaceLeaf } from 'obsidian';
 import { NotebookNavigatorObserver } from '../src/observers/notebookNavigatorObserver';
-import { Rule } from '../src/types';
+import { Rule, TagMeta } from '../src/types';
 
 // plugin-namespaced decoration classes / marker. Never nn-*.
 const HIDDEN_CLASS = 'tc-nn-hidden';
@@ -22,6 +22,15 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     match: { type: 'list', list: ['photo'] },
     action: 'hide',    ...overrides,
   };
+}
+
+/** A metadata map keyed by the vault's canonical-cased tag (DA-14 fixtures). */
+function metaMap(...tags: Array<[string, number]>): Map<string, TagMeta> {
+  const map = new Map<string, TagMeta>();
+  for (const [tag, count] of tags) {
+    map.set(tag, { tag, firstSeen: 0, lastSeen: 0, count, sources: ['inline'] });
+  }
+  return map;
 }
 
 /**
@@ -149,6 +158,86 @@ describe('NotebookNavigatorObserver basic decoration', () => {
     const row = rowFor(scroller, 'photo');
     expect(row.classList.contains('nn-navitem')).toBe(true);
     expect(row.classList.contains('nn-tag')).toBe(true);
+  });
+});
+
+describe('NotebookNavigatorObserver case-insensitive resolution (DA-14)', () => {
+  it('hides a mixed-case tag whose NN data-tag is lowercase, via a list rule in canonical case', async () => {
+    // NN lowercases data-tag to "myproject"; the vault tag + the rule are
+    // "MyProject". Pre-fix this missed on both the metadata lookup and the
+    // case-sensitive list match, so it decorated everywhere BUT NN.
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 5]));
+    obs.setRules([rule({ match: { type: 'list', list: ['MyProject'] } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('hides a mixed-case tag via a frequency rule (needs the metadata lookup to hit)', async () => {
+    // A frequency rule returns false when meta is undefined, so this case only
+    // passes once the lowercase data-tag resolves to the canonical metadata key.
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 1]));
+    obs.setRules([rule({ match: { type: 'frequency', operator: '<=', value: 1 } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('resolves an always-hide override on a mixed-case tag despite NN lowercasing', async () => {
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 3]));
+    obs.setRules([]);
+    obs.setOverrides({ MyProject: 'hide' });
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('inherits a mixed-case ancestor hide down to a lowercase-rendered descendant', async () => {
+    // NN renders "MyProject/SubTag" as data-tag "myproject/subtag"; a rule on
+    // the canonical parent "MyProject" must still cascade to the child row.
+    const { pane, scroller } = makeNnPane([
+      ['myproject', 0],
+      ['myproject/subtag', 1],
+    ]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 4], ['MyProject/SubTag', 2]));
+    obs.setRules([rule({ match: { type: 'list', list: ['MyProject'] } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(rowFor(scroller, 'myproject/subtag').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('leaves all-lowercase vaults unchanged when no metadata is set (fallback path)', async () => {
+    // The existing behavior: with no metadata index, data-tag passes through
+    // verbatim and a lowercase list rule still matches.
+    const { pane, scroller } = makeNnPane([['photo', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'photo').classList.contains(HIDDEN_CLASS)).toBe(true);
   });
 });
 

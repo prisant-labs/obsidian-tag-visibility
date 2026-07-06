@@ -49,11 +49,36 @@ interface NnLeaf {
  * the scroller re-runs the idempotent decorate pass to re-assert state.
  */
 export class NotebookNavigatorObserver extends ObserverBase {
+  // NN writes `data-tag` as a lowercase canonical path, but the engine and the
+  // metadata map are CASE-SENSITIVE (tags keep the vault's original casing).
+  // Without reconciliation a mixed-case tag like `MyProject` decorates in every
+  // surface EXCEPT NN, whose row carries `data-tag="myproject"`: the metadata
+  // lookup misses (map key is `MyProject`) and a rule written `MyProject` never
+  // matches `myproject` (DA-14). This index maps each metadata key's lowercase
+  // form back to its canonical casing; findRows resolves every NN row through it
+  // so the shared apply loop sees the same string the tag pane does. Rebuilt in
+  // setMetadata (below) so it costs O(tags) per metadata change, not per row.
+  private lowerToCanonical = new Map<string, string>();
+
   init(): void {
     this.app.workspace.onLayoutReady(() => this.attachAll());
     this.plugin.registerEvent(
       this.app.workspace.on('layout-change', () => this.attachAll()),
     );
+  }
+
+  /**
+   * Rebuild the lowercase -> canonical-case index alongside the base metadata
+   * store (DA-14). If two genuinely distinct tags collide on lowercase (e.g.
+   * both `MyProject` and `myproject` exist as separate case-sensitive metadata
+   * entries), last write wins - NN merges them into one lowercase row anyway,
+   * so it cannot distinguish them and either canonical resolution is defensible.
+   */
+  setMetadata(metadata: Map<string, TagMeta>): void {
+    super.setMetadata(metadata);
+    const index = new Map<string, string>();
+    for (const key of metadata.keys()) index.set(key.toLowerCase(), key);
+    this.lowerToCanonical = index;
   }
 
   attachAll(): void {
@@ -111,11 +136,26 @@ export class NotebookNavigatorObserver extends ObserverBase {
 
   protected findRows(root: HTMLElement): ObservedRow[] {
     const rows = root.querySelectorAll<HTMLElement>(NN_TAG_ROW_SELECTOR);
-    return Array.from(rows).map((row) => ({
-      el: row,
-      // data-tag is already the canonical lowercase path; no leading '#'.
-      tag: row.getAttribute('data-tag') ?? '',
-    }));
+    return Array.from(rows).map((row) => {
+      // data-tag is NN's canonical LOWERCASE path (no leading '#'). Resolve it
+      // back to the vault's actual casing so the case-sensitive metadata lookup
+      // and rule matching in the shared apply loop behave exactly as they do in
+      // the tag pane (DA-14). Fall back to the raw value when the tag is not in
+      // metadata (e.g. no scan yet), which keeps all-lowercase vaults unchanged.
+      const dataTag = row.getAttribute('data-tag') ?? '';
+      return { el: row, tag: this.toCanonical(dataTag) };
+    });
+  }
+
+  /**
+   * Resolve any-case tag path to its canonical metadata casing (DA-14). Keys in
+   * the index are lowercase, so the input is lowercased first: this makes the
+   * helper correct for NN's already-lowercase data-tag AND for a mixed-case
+   * ancestor prefix derived from splitting a canonical path. Unknown tags return
+   * unchanged.
+   */
+  private toCanonical(tag: string): string {
+    return this.lowerToCanonical.get(tag.toLowerCase()) ?? tag;
   }
 
   /**
@@ -137,7 +177,12 @@ export class NotebookNavigatorObserver extends ObserverBase {
     // counts). Intentionally NOT memoized to keep the observer simple; a
     // per-apply-pass cache is the right future optimization if depth or rule
     // counts grow materially (YAGNI).
-    for (const ancestor of ancestorPrefixes(tag)) {
+    for (const rawAncestor of ancestorPrefixes(tag)) {
+      // The prefix is derived by splitting the (already canonical) full tag, but
+      // a standalone ancestor may be stored under different casing; resolve it
+      // through the same index so its metadata + rule matching are case-correct
+      // (DA-14).
+      const ancestor = this.toCanonical(rawAncestor);
       const ancestorMeta = this.metadata.get(ancestor);
       const resolved = super.resolveRow(ancestor, ancestorMeta);
       const { effective } = resolved;
