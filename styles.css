@@ -911,6 +911,19 @@ settings:
      baseline (the tight action select showed the 'g' cut off). */
   line-height: 1.4;
 }
+/* UI-001: 2a's line-height alone did not fix the clipping (confirmed live -
+   both the closed control and the option text still crop). A native <select>
+   in Chromium/Electron renders its closed-box text using its own internal
+   combo-box layout when no `height` is set explicitly, which can silently
+   compress below what padding + line-height alone would produce - the box
+   ends up shorter than the text needs, cropping the top or the descender.
+   Forcing `height: auto` (with `box-sizing: content-box` so the padding
+   above is additive, not squeezed into a fixed box) makes the box a normal
+   content-sized element instead, so line-height finally has room to apply. */
+select.tcr-select {
+  height: auto;
+  box-sizing: content-box;
+}
 .tcr-select.tight,
 .tcr-input.tight {
   width: 200px;
