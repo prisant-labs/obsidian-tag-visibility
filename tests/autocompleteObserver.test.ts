@@ -150,6 +150,24 @@ function makeAppWithEditor(lineBeforeCursor: string | null): ReturnType<typeof m
   return app;
 }
 
+/**
+ * Simulates the Properties `tags` field (or another metadata property, for the
+ * negative case) holding keyboard focus (H006, signal 3): a
+ * `.metadata-property[data-property-key="..."]` row containing a focusable
+ * input, focused and attached to the document so `document.activeElement`
+ * resolves to it.
+ */
+function focusPropertiesField(propertyKey: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'metadata-property';
+  row.setAttribute('data-property-key', propertyKey);
+  const input = document.createElement('input');
+  row.appendChild(input);
+  document.body.appendChild(row);
+  input.focus();
+  return row;
+}
+
 describe('AutocompleteObserver bare-name tag suggestions (Obsidian 1.12.7+)', () => {
   const hexRule = (): Rule =>
     rule({ id: 'hex', match: { type: 'regex', pattern: '^[0-9A-Fa-f]{3,8}$' } });
@@ -236,6 +254,30 @@ describe('AutocompleteObserver bare-name tag suggestions (Obsidian 1.12.7+)', ()
     await flushRaf();
 
     expect(itemFor(container, '#C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('suppresses a bare hex suggestion when the Properties tags field has focus, even with no body-editor context (H006)', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    focusPropertiesField('tags');
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('leaves bare suggestions untouched when a non-tags property has focus (e.g. aliases)', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    focusPropertiesField('aliases');
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(false);
   });
 });
 

@@ -29,9 +29,10 @@ const RULE_ATTR = 'data-tc-ac-rule';
  *   - Each suggestion is a `.suggestion-item`; its visible text lives in
  *     `.suggestion-content` (falling back to the item's own textContent).
  *
- * DISTINGUISHING TAG SUGGESTIONS (two conservative signals). The SAME
- * `.suggestion-container` is reused for file links, headings, aliases, and so
- * on, so we must act ONLY on tag suggestions. Two signals, either sufficient:
+ * DISTINGUISHING TAG SUGGESTIONS (three conservative signals). The SAME
+ * `.suggestion-container` is reused for file links, headings, aliases, the
+ * Properties tags field, and so on, so we must act ONLY on tag suggestions.
+ * Three signals, any one sufficient:
  *
  *   1. LEGACY PREFIX: older Obsidian builds rendered tag suggestions with a
  *      leading '#' (e.g. `#draft`); file / heading / link suggestions never
@@ -45,10 +46,21 @@ const RULE_ATTR = 'data-tc-ac-rule';
  *      every item in it is a tag. Uses only public Editor API surface
  *      (workspace.activeEditor.editor, getCursor, getLine), wrapped so any
  *      failure means "not a tag context" rather than a throw.
+ *   3. PROPERTIES TAGS FIELD (H006): the Properties panel's own `tags` value
+ *      picker renders through this SAME popup, but it is not the note-body
+ *      editor signal 2 reads - so signal 2 only fired there by coincidence,
+ *      whenever the body's last cursor position happened to also look like a
+ *      '#token'. Instead we check whether the currently focused element
+ *      (`document.activeElement`) sits inside the Properties tags row
+ *      (`.metadata-property[data-property-key="tags"]`, mirroring
+ *      PropertiesObserver's own selector). Unlike the body editor, that field
+ *      never suggests anything but tags, so this signal alone is sufficient -
+ *      no '#' heuristic needed. Wrapped so any failure reads as "not a tag
+ *      context".
  *
- * Both signals are deliberately conservative: a suggestion we cannot confirm
- * is a tag is left untouched (we would rather miss suppressing a tag than
- * wrongly hide a file/heading suggestion).
+ * All three signals are deliberately conservative: a suggestion we cannot
+ * confirm is a tag is left untouched (we would rather miss suppressing a tag
+ * than wrongly hide a file/heading suggestion).
  *
  * KEYBOARD-FOCUS CAVEAT (accepted for v1.0): hiding a suggestion item via CSS
  * `display:none` removes it visually, but Obsidian's own suggestion controller
@@ -62,6 +74,11 @@ const RULE_ATTR = 'data-tc-ac-rule';
 const SUGGESTION_CONTAINER_SELECTOR = '.suggestion-container';
 const SUGGESTION_ITEM_SELECTOR = '.suggestion-item';
 const SUGGESTION_CONTENT_SELECTOR = '.suggestion-content';
+// Mirrors PropertiesObserver's own TAGS_PROPERTY_SELECTOR (H006, signal 3
+// above). Duplicated rather than imported: each observer documents its own
+// version-fragile DOM contract independently, and this is the one selector
+// the two files need to agree on.
+const PROPERTIES_TAGS_ROW_SELECTOR = '.metadata-property[data-property-key="tags"]';
 
 interface EditorLike {
   getCursor(): { line: number; ch: number };
@@ -160,14 +177,29 @@ export class AutocompleteObserver extends ObserverBase {
     }
   }
 
+  /**
+   * True when the currently focused element (H006, signal 3) sits inside the
+   * Properties `tags` row - i.e. the open suggestion popup belongs to that
+   * field's own value picker, which never suggests anything but tags. Any
+   * failure (no activeElement, DOM shape drift) reads as false: not a tag
+   * context, leave the popup untouched.
+   */
+  private isPropertiesTagsFieldFocused(): boolean {
+    try {
+      return !!document.activeElement?.closest(PROPERTIES_TAGS_ROW_SELECTOR);
+    } catch {
+      return false;
+    }
+  }
+
   protected findRows(root: HTMLElement): ObservedRow[] {
     const containers = root.querySelectorAll<HTMLElement>(
       SUGGESTION_CONTAINER_SELECTOR,
     );
     const out: ObservedRow[] = [];
-    // Resolved once per pass: with a popup open, the editor state is stable
-    // for the duration of the pass.
-    const inTagContext = this.isTagTypingContext();
+    // Resolved once per pass: with a popup open, the editor/focus state is
+    // stable for the duration of the pass.
+    const inTagContext = this.isTagTypingContext() || this.isPropertiesTagsFieldFocused();
     for (const container of Array.from(containers)) {
       const items = container.querySelectorAll<HTMLElement>(
         SUGGESTION_ITEM_SELECTOR,
