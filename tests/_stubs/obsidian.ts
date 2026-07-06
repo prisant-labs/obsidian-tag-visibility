@@ -140,6 +140,10 @@ export function setIcon(_el: HTMLElement, _icon: string): void {
   // no-op
 }
 
+export function setTooltip(_el: HTMLElement, _tooltip: string, _options?: unknown): void {
+  // no-op
+}
+
 export class MenuItem {
   setTitle(_title: string): this {
     return this;

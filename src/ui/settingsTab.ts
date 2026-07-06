@@ -6,7 +6,7 @@
  *
  * The persistent state banner (D-007) sits above whichever panel is active.
  */
-import { App, EventRef, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, EventRef, Notice, PluginSettingTab, Setting, setTooltip } from 'obsidian';
 import TagCuratorPlugin from '../main';
 import { PRESETS, resolveActiveRules } from '../engine/presets';
 import { RuleEditor } from './ruleEditor';
@@ -40,6 +40,28 @@ export class TagCuratorSettingTab extends PluginSettingTab {
   private curateModel: TagListModel | null = null;
   private curateOffSettings: (() => void) | null = null;
   private curateMetaRef: EventRef | null = null;
+  // General tab live-refresh (UI-002): an external settings change (e.g. the
+  // state banner's "Turn off preview" / "Turn on" action) must repaint the
+  // General panel's toggles and stat cards, not just the banner itself.
+  private generalOffSettings: (() => void) | null = null;
+  // General tab live-refresh on tag-metadata changes (UI-003): the startup
+  // scan (and "Rescan vault tags") complete asynchronously AFTER onload, and
+  // fire tagMetaManager's own 'changed' event, not a settings change. Without
+  // this, a General panel rendered before that scan finishes (e.g. right
+  // after a full app reload) shows "Total tags / Hidden now / Orphans: 0"
+  // forever - nothing else ever repaints it. Mirrors curateMetaRef, which the
+  // All-tags tab already had.
+  private generalMetaRef: EventRef | null = null;
+  // Tab-bar badge live-refresh (UI-005): the Presets/Custom rules badges show
+  // ENABLED count, which changes on every toggle - unlike the old fixed
+  // totals, a stale badge here would be immediately visible. Refreshing just
+  // these two text nodes (instead of a full display()) keeps it instantaneous
+  // without disrupting whatever panel/scroll position/expanded state the user
+  // is currently in - toggling a preset while ON the Presets tab must not
+  // reset its own "More details" expansions.
+  private presetsBadgeEl: HTMLElement | null = null;
+  private customBadgeEl: HTMLElement | null = null;
+  private tabBadgeOffSettings: (() => void) | null = null;
   private ruleEditor: RuleEditor | null = null;
   // The rule id the All tags table is filtered to (null = all tags). Driven
   // by the "Filter by rule" selector and by a Presets deep-link (3-1).
@@ -61,6 +83,9 @@ export class TagCuratorSettingTab extends PluginSettingTab {
     // Tear down curate table + its subscriptions and the rule editor before
     // rebuilding DOM (avoids leaked listeners and scroll listeners).
     this.teardownCurate();
+    this.teardownGeneral();
+    this.tabBadgeOffSettings?.();
+    this.tabBadgeOffSettings = null;
     this.ruleEditor?.destroy();
     this.ruleEditor = null;
 
@@ -90,12 +115,22 @@ export class TagCuratorSettingTab extends PluginSettingTab {
       if (tab.badge) {
         const badge = tabEl.createSpan({ cls: 'tcst-badge', text: tab.badge });
         if (tab.badgeKind === 'soon') badge.addClass('tcst-badge-soon');
+        if (tab.id === 'presets') this.presetsBadgeEl = badge;
+        if (tab.id === 'custom') this.customBadgeEl = badge;
       }
       makeActivatable(tabEl, () => {
         this.activeTab = tab.id;
         this.display();
       });
     }
+    // UI-005: keep the enabled-count badges live regardless of which tab is
+    // open - a preset toggled from the Presets tab, or a rule from Custom
+    // rules (via RuleEditor, which owns its own subscription), both persist
+    // through the same settingsManager and fire the same onChange.
+    this.tabBadgeOffSettings = this.plugin.settingsManager.onChange(() => {
+      this.presetsBadgeEl?.setText(String(this.enabledPresetCount()));
+      this.customBadgeEl?.setText(String(this.enabledCustomRuleCount()));
+    });
 
     const active = tabs.find((t) => t.id === this.activeTab) ?? tabs[0];
     const panel = this.panelHost.createDiv({ cls: 'tcst-panel' });
@@ -104,6 +139,11 @@ export class TagCuratorSettingTab extends PluginSettingTab {
 
   hide(): void {
     this.teardownCurate();
+    this.teardownGeneral();
+    this.tabBadgeOffSettings?.();
+    this.tabBadgeOffSettings = null;
+    this.presetsBadgeEl = null;
+    this.customBadgeEl = null;
     this.ruleEditor?.destroy();
     this.ruleEditor = null;
     if (this.banner) {
@@ -124,14 +164,36 @@ export class TagCuratorSettingTab extends PluginSettingTab {
     this.curateModel = null;
   }
 
+  private teardownGeneral(): void {
+    this.generalOffSettings?.();
+    this.generalOffSettings = null;
+    if (this.generalMetaRef) {
+      this.plugin.tagMetaManager.offref(this.generalMetaRef);
+      this.generalMetaRef = null;
+    }
+  }
+
   // -----------------------------------------------------------------
   // Tab descriptors
   // -----------------------------------------------------------------
 
-  private buildTabDescriptors(): TabDescriptor[] {
-    const s = this.plugin.settingsManager.get();
-    const customCount = s.customRules.length;
+  /**
+   * Count of built-in presets currently toggled on (UI-005: the badge shows
+   * ENABLED count, not the fixed total). Filters against the live PRESETS
+   * list rather than trusting `enabledPresets.length` directly, so a stale id
+   * left over from a removed preset can never inflate the count.
+   */
+  private enabledPresetCount(): number {
+    const enabled = new Set(this.plugin.settingsManager.get().enabledPresets);
+    return PRESETS.filter((p) => enabled.has(p.id)).length;
+  }
 
+  /** Count of custom rules currently toggled on (UI-005). */
+  private enabledCustomRuleCount(): number {
+    return this.plugin.settingsManager.get().customRules.filter((r) => r.enabled).length;
+  }
+
+  private buildTabDescriptors(): TabDescriptor[] {
     return [
       { id: 'general', label: 'General', render: (p) => this.renderGeneral(p) },
       { id: 'curate', label: 'All tags', render: (p) => this.renderCurate(p) },
@@ -143,14 +205,14 @@ export class TagCuratorSettingTab extends PluginSettingTab {
       {
         id: 'presets',
         label: 'Presets',
-        badge: String(PRESETS.length),
+        badge: String(this.enabledPresetCount()),
         badgeKind: 'count',
         render: (p) => this.renderPresetsTab(p),
       },
       {
         id: 'custom',
         label: 'Custom rules',
-        badge: String(customCount),
+        badge: String(this.enabledCustomRuleCount()),
         badgeKind: 'count',
         render: (p) => this.renderCustomRules(p),
       },
@@ -164,6 +226,9 @@ export class TagCuratorSettingTab extends PluginSettingTab {
   // -----------------------------------------------------------------
 
   private renderGeneral(panel: HTMLElement): void {
+    // Self-teardown before (re)mounting, mirroring renderCurate's own guard
+    // (defensive against a re-entrant call while a prior subscription is live).
+    this.teardownGeneral();
     const s = this.plugin.settingsManager.get();
     const meta = this.plugin.tagMetaManager.all();
     // The curation-state cards reflect what is actually in effect: when the
@@ -179,7 +244,13 @@ export class TagCuratorSettingTab extends PluginSettingTab {
 
     // Stats header on top (1-1).
     const stats = panel.createDiv({ cls: 'tcst-stats' });
-    this.renderStatCard(stats, 'Total tags', meta.size);
+    this.renderStatCard(
+      stats,
+      'Total tags',
+      meta.size,
+      undefined,
+      'Every distinct tag found in your vault, whether shown or hidden.',
+    );
     // In preview mode the curated set is flagged in place, not hidden, so the
     // card labels itself honestly rather than always saying "Hidden now".
     this.renderStatCard(
@@ -187,9 +258,24 @@ export class TagCuratorSettingTab extends PluginSettingTab {
       s.enabled && s.previewMode ? 'Flagged now' : 'Hidden now',
       hiddenCount,
       'accent',
+      s.enabled && s.previewMode
+        ? 'Tags a rule would hide if preview mode were off - flagged in place so you can check before committing.'
+        : 'Tags currently hidden by an active rule or override, across every enabled surface.',
     );
-    this.renderStatCard(stats, 'Active rules', ruleCount);
-    this.renderStatCard(stats, 'Orphans', orphanCount);
+    this.renderStatCard(
+      stats,
+      'Active rules',
+      ruleCount,
+      undefined,
+      'Enabled presets and custom rules currently being applied, combined.',
+    );
+    this.renderStatCard(
+      stats,
+      'Orphans',
+      orphanCount,
+      undefined,
+      'Tags that appear in only one note - often typos or one-offs worth reviewing.',
+    );
 
     // Master switch first, then the opt-in pane beneath it (1-1).
     new Setting(panel)
@@ -242,6 +328,20 @@ export class TagCuratorSettingTab extends PluginSettingTab {
           .setWarning()
           .onClick(() => this.runPanicDisable()),
       );
+
+    // Live-refresh on external settings changes (UI-002): a direct toggle
+    // click already re-renders itself explicitly, but a change triggered from
+    // outside this panel - the state banner's "Turn off preview" / "Turn on"
+    // action, another tab, a command - would otherwise leave these toggles and
+    // stat cards showing stale values even though the underlying state (and
+    // the banner itself, which subscribes independently) is correct.
+    this.generalOffSettings = this.plugin.settingsManager.onChange(() => this.display());
+    // Live-refresh on tag-metadata changes (UI-003): the startup scan (and
+    // "Rescan vault tags") complete asynchronously and fire tagMetaManager's
+    // own 'changed' event, not a settings change - without this subscription
+    // a panel rendered before that scan finishes is stuck reading an empty
+    // metadata map forever.
+    this.generalMetaRef = this.plugin.tagMetaManager.on('changed', () => this.display());
   }
 
   private renderStatCard(
@@ -249,12 +349,17 @@ export class TagCuratorSettingTab extends PluginSettingTab {
     label: string,
     value: number | string,
     accent?: 'accent',
+    tooltip?: string,
   ): void {
     const card = parent.createDiv({ cls: 'tcst-stat-card' });
     card.createDiv({ cls: 'tcst-stat-label', text: label });
     const v = card.createDiv({ cls: 'tcst-stat-value' });
     if (accent) v.addClass('tcst-stat-accent');
     v.setText(typeof value === 'number' ? value.toLocaleString() : value);
+    // UI-004: hover explanation for what the card counts. Obsidian's own
+    // tooltip primitive (positioned, themed, dismisses correctly) rather than
+    // a bare `title` attribute.
+    if (tooltip) setTooltip(card, tooltip);
   }
 
   private runPanicDisable(): void {
