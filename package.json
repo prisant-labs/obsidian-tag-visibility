@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tag-visibility",
-  "version": "1.0.0-rc.8",
+  "version": "1.0.0-rc.9",
   "description": "Control which tags are visible across Obsidian's UI: hide, flag, and pin. Display-only, file-safe, fully reversible.",
   "main": "main.js",
   "scripts": {
