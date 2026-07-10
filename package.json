@@ -29,7 +29,7 @@
     "happy-dom": "^20.10.6",
     "obsidian": "latest",
     "tslib": "^2.7.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.62.0",
     "vitest": "^4.1.9"
   },
