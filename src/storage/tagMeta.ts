@@ -81,7 +81,7 @@ export class TagMetaManager extends Events {
       // Durable settings is authoritative for reviewed; mirror it onto the store.
       this.hydrateReviewed();
     } catch (e) {
-      console.error('[tag-curator] tags.json corrupted, rebuilding', e);
+      console.error('[tag-visibility] tags.json corrupted, rebuilding', e);
       this.store = new Map();
     }
   }
