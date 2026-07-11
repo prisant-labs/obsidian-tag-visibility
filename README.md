@@ -273,6 +273,8 @@ If the plugin behaves unexpectedly, run **Tag Visibility: Panic disable** from t
 
 ## Compatibility
 
+Tag Visibility works on Obsidian Mobile (iOS and Android): all four display scopes behave as on desktop. The status bar item is desktop-only because Obsidian does not render a status bar on mobile.
+
 Tag Visibility is display-only and file-safe, so it plays well with the rest of your tag ecosystem.
 
 - **Dataview, Tasks, and Bases**: unaffected. Because Tag Visibility only changes how tags render and never patches the metadata cache or note content, every metadata-cache consumer sees the full, unfiltered tag set. Your queries, indexes, and results are exactly what they would be without Tag Visibility installed.
