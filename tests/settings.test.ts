@@ -822,3 +822,176 @@ describe('SettingsManager.get/setTableColumns (per surface)', () => {
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B-01: Corrupt data.json must never be overwritten with defaults
+// ---------------------------------------------------------------------------
+
+describe('SettingsManager - unreadable data.json guard (B-01)', () => {
+  // B-01 AC-1: loadData resolving undefined (file present but unreadable) must
+  // not call saveData at any point during load.
+  it('B-01 AC-1: no saveData call when loadData resolves undefined', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(plugin.saveCount).toBe(0);
+  });
+
+  // B-01 AC-2 / AC-1 companion: plugin still loads and operates on in-memory
+  // defaults (getReadOnlyReason returns the reason, settings are accessible).
+  it('B-01: loads on defaults and exposes the unreadable reason when data is undefined', async () => {
+    const mgr = new SettingsManager(pluginWith(undefined));
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+    // Settings are the defaults (plugin is functional).
+    expect(mgr.get().schemaVersion).toBe(SCHEMA_VERSION);
+    expect(mgr.get().enabled).toBe(DEFAULT_SETTINGS.enabled);
+  });
+
+  // B-01: a data.json that parses but is not a plain object is present-but-not-
+  // settings, so it takes the same non-destructive path as an unparseable file.
+  // An array would otherwise read schemaVersion 0 and get defaults persisted over
+  // it (the B-01 harm through a different door); a bare primitive would throw from
+  // the legacy-key `in` check.
+  it.each([
+    ['an array', [] as unknown],
+    ['a number', 42 as unknown],
+    ['a string', 'corrupt' as unknown],
+    ['a boolean', true as unknown],
+  ])('B-01: %s from loadData is treated as unreadable, never overwritten', async (_label, value) => {
+    const plugin = pluginWith(value);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+    expect(plugin.saveCount).toBe(0);
+    expect(plugin.data).toBe(value);
+  });
+
+  // B-01 AC-4: a setter in the unreadable state updates in-memory state and
+  // notifies listeners, but does NOT call saveData.
+  it('B-01 AC-4: setter updates in-memory and fires listeners without writing disk', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+
+    let listenerCalls = 0;
+    mgr.onChange(() => { listenerCalls += 1; });
+
+    // Capture disk state before the setter.
+    const diskBefore = plugin.data;
+    await mgr.setEnabled(false);
+
+    // In-memory change landed.
+    expect(mgr.get().enabled).toBe(false);
+    // Listener fired (UI must not appear dead).
+    expect(listenerCalls).toBe(1);
+    // Disk was NOT written.
+    expect(plugin.saveCount).toBe(0);
+    expect(plugin.data).toBe(diskBefore);
+  });
+
+  // B-01 AC-5: absent data.json (null from loadData = genuine first run) must
+  // follow the unchanged migrate-and-persist path.
+  it('B-01 AC-5: null from loadData (absent file) still migrates and persists', async () => {
+    const plugin = pluginWith(null);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    // Normal first-run: defaults migrated and written to disk.
+    expect(mgr.getReadOnlyReason()).toBeNull();
+    expect(plugin.saveCount).toBeGreaterThan(0);
+    expect((plugin.data as { schemaVersion: number }).schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  // B-01 AC-6: repairing data.json and calling reload() must restore normal
+  // load + persistence (readOnlyReason returns null, saveData is called).
+  it('B-01 AC-6: repairing the file and reloading restores normal persistence', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+
+    // Simulate the user restoring a valid data.json.
+    plugin.data = { ...DEFAULT_SETTINGS, schemaVersion: SCHEMA_VERSION };
+    await mgr.reload();
+
+    expect(mgr.getReadOnlyReason()).toBeNull();
+    // A current-version file with no legacy keys needs no rewrite, but the
+    // core contract is that persistence is now unblocked.
+    await mgr.setEnabled(false);
+    expect(plugin.saveCount).toBeGreaterThan(0);
+    expect((plugin.data as { enabled: boolean }).enabled).toBe(false);
+  });
+
+  // B-01 defensive: a rejected loadData promise must be treated identically
+  // to undefined (present but unreadable). Covers API drift where Obsidian
+  // might reject instead of resolving undefined.
+  it('B-01 defensive: a rejected loadData is treated as unreadable (no saveData)', async () => {
+    const plugin = pluginWith(null);
+    plugin.loadError = new Error('disk read error');
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+    expect(plugin.saveCount).toBe(0);
+    expect(mgr.get().schemaVersion).toBe(SCHEMA_VERSION);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-03: Read-only settings mode is visible to the user
+// ---------------------------------------------------------------------------
+
+describe('SettingsManager - consumeReadOnlyNotice session gate (B-03)', () => {
+  // B-03 AC-5: consumeReadOnlyNotice returns the reason on first call for that
+  // reason, then null on every subsequent call (session gate, no Notice storm).
+  it('B-03 AC-5: consumeReadOnlyNotice returns reason once then null under repeated future-schema loads', async () => {
+    const futureShape = {
+      ...DEFAULT_SETTINGS,
+      schemaVersion: SCHEMA_VERSION + 1,
+    };
+    const plugin = pluginWith(futureShape);
+    const mgr = new SettingsManager(plugin);
+
+    // First load.
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('future-schema');
+
+    // First consume: returns the reason.
+    expect(mgr.consumeReadOnlyNotice()).toBe('future-schema');
+    // Subsequent consume in same session: returns null (B-03 AC-1 no re-nag).
+    expect(mgr.consumeReadOnlyNotice()).toBeNull();
+    expect(mgr.consumeReadOnlyNotice()).toBeNull();
+
+    // Simulated external reload (same future file still present).
+    await mgr.reload();
+    expect(mgr.getReadOnlyReason()).toBe('future-schema');
+    // Still null: the same reason was already notified this session.
+    expect(mgr.consumeReadOnlyNotice()).toBeNull();
+  });
+
+  it('B-03: consumeReadOnlyNotice returns null when no read-only state is active', async () => {
+    const mgr = new SettingsManager(pluginWith(null));
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBeNull();
+    expect(mgr.consumeReadOnlyNotice()).toBeNull();
+  });
+
+  it('B-03: consumeReadOnlyNotice returns reason once for the unreadable state', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.consumeReadOnlyNotice()).toBe('unreadable');
+    expect(mgr.consumeReadOnlyNotice()).toBeNull();
+  });
+
+  it('B-03: getReadOnlyReason returns null after a normal reload following a read-only state', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+
+    // Repair and reload.
+    plugin.data = { ...DEFAULT_SETTINGS, schemaVersion: SCHEMA_VERSION };
+    await mgr.reload();
+    expect(mgr.getReadOnlyReason()).toBeNull();
+  });
+});

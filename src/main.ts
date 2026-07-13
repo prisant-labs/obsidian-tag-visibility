@@ -1,5 +1,5 @@
 import { Notice, Platform, Plugin, TFile, WorkspaceLeaf } from 'obsidian';
-import { SettingsManager } from './storage/settings';
+import { SettingsManager, type ReadOnlyReason } from './storage/settings';
 import { TagMetaManager } from './storage/tagMeta';
 import { ObserverBase } from './observers/observerBase';
 import { TagPaneObserver } from './observers/tagPaneObserver';
@@ -63,6 +63,13 @@ export default class TagCuratorPlugin extends Plugin {
   async onload(): Promise<void> {
     this.settingsManager = new SettingsManager(this);
     await this.settingsManager.load();
+    // B-01 / B-03: inform the user (once per session) when settings are in a
+    // read-only degraded state. consumeReadOnlyNotice() gates to at most one
+    // Notice per reason per session so repeated reloads do not nag.
+    const loadNotice = this.settingsManager.consumeReadOnlyNotice();
+    if (loadNotice !== null) {
+      new Notice(this.readOnlyNoticeText(loadNotice));
+    }
     const settings = this.settingsManager.get();
 
     // SettingsManager is the durable reviewed-tag store (P2-09): reviewed state
@@ -367,6 +374,13 @@ export default class TagCuratorPlugin extends Plugin {
 
   async onExternalSettingsChange(): Promise<void> {
     await this.settingsManager.reload();
+    // B-01 / B-03: show a Notice if the reloaded file transitions into a new
+    // read-only reason. The session gate in consumeReadOnlyNotice() ensures the
+    // same reason is not shown again (B-03 AC-1).
+    const reloadNotice = this.settingsManager.consumeReadOnlyNotice();
+    if (reloadNotice !== null) {
+      new Notice(this.readOnlyNoticeText(reloadNotice));
+    }
     const next = this.settingsManager.get();
     const rules = resolveActiveRules(next);
     for (const obs of this.observers) {
@@ -379,6 +393,24 @@ export default class TagCuratorPlugin extends Plugin {
     this.applyScopeEnabled(PROPERTIES_SCOPE, this.propertiesObserver, next.enabled);
     this.applyScopeEnabled(AUTOCOMPLETE_SCOPE, this.autocompleteObserver, next.enabled);
     this.refreshStatusBar();
+  }
+
+  /**
+   * Human-readable Notice text for each read-only reason (B-01, B-03 AC-2).
+   * Names the cause and the remedy; prefixed with the plugin name per convention.
+   */
+  private readOnlyNoticeText(reason: ReadOnlyReason): string {
+    if (reason === 'unreadable') {
+      return (
+        'Tag Visibility: settings could not be read (data.json unreadable). ' +
+        'Running on defaults; changes will not be saved until the file is ' +
+        'restored or removed.'
+      );
+    }
+    return (
+      'Tag Visibility: settings were written by a newer version of the plugin. ' +
+      'Changes will not be saved until this device updates the plugin.'
+    );
   }
 
   onunload(): void {

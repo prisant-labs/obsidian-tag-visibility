@@ -146,6 +146,32 @@ settings:
 .tag-curator-state-banner .sb-action:hover {
   background: var(--background-modifier-hover);
 }
+/* Read-only mode: future-schema (B-03). Amber to match the severity of
+ * "something needs attention" without implying an error on the user's part. */
+.tag-curator-state-banner[data-variant="future-schema"] {
+  background: rgba(245, 201, 124, 0.12);
+  border-left-color: var(--text-warning);
+}
+.tag-curator-state-banner[data-variant="future-schema"] .sb-ic {
+  background: var(--text-warning);
+  color: var(--background-primary);
+}
+.tag-curator-state-banner[data-variant="future-schema"] .sb-msg {
+  color: var(--text-muted);
+}
+/* Read-only mode: unreadable data.json (B-01). Red accent to convey that
+ * the existing file is at risk if the user is not aware of the state. */
+.tag-curator-state-banner[data-variant="unreadable"] {
+  background: rgba(220, 80, 50, 0.1);
+  border-left-color: var(--text-error);
+}
+.tag-curator-state-banner[data-variant="unreadable"] .sb-ic {
+  background: var(--text-error);
+  color: var(--background-primary);
+}
+.tag-curator-state-banner[data-variant="unreadable"] .sb-msg {
+  color: var(--text-muted);
+}
 
 /* =========================================================
  * Welcome modal (D-008)

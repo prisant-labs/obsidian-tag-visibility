@@ -19,6 +19,15 @@ function defaultColsFor(surface: TableSurface): TableColumnPrefs {
   return surface === 'pane' ? { ...PANE_DEFAULT_COLS } : { ...SETTINGS_DEFAULT_COLS };
 }
 
+/**
+ * True when v is a plain object: the only shape a valid data.json can parse to.
+ * An array or a bare primitive is present-but-not-settings and must take the
+ * non-destructive unreadable path, not the first-run path (B-01).
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 /** True when v is a flat {lastSeen, source, rule} column-prefs object. */
 function isColumnPrefs(v: unknown): v is TableColumnPrefs {
   return (
@@ -60,15 +69,31 @@ type LegacyV0Settings = Partial<TagCuratorSettings> & {
 // files an earlier build persisted with the keys aboard (DA-01).
 const LEGACY_V0_KEYS = ['rules', 'enabledRules', 'dryRun', 'tagMetadata'] as const;
 
+/**
+ * Reason the settings manager is in read-only mode this session.
+ *
+ *   'future-schema' - data.json was written by a newer plugin version; persisting
+ *                     the older shape would downgrade schemaVersion (P2-08, B-03).
+ *   'unreadable'    - data.json exists but could not be parsed; persisting would
+ *                     overwrite a recoverable file with defaults (B-01).
+ *
+ * Re-evaluated to null on every load()/reload() so repairing the file restores
+ * normal persistence.
+ */
+export type ReadOnlyReason = 'future-schema' | 'unreadable';
+
 export class SettingsManager {
   private plugin: Plugin;
   private settings: TagCuratorSettings = { ...DEFAULT_SETTINGS };
   private listeners: Array<() => void> = [];
-  // True when the loaded data.json carries a schemaVersion newer than this build.
-  // While set, persist() is a no-op: writing our older shape back would downgrade
-  // schemaVersion and could corrupt fields a newer version reshaped. Re-evaluated
-  // on every load()/reload().
-  private futureSchema = false;
+  // Health state: non-null when the plugin is in read-only degraded mode.
+  // Re-evaluated (reset to null) on every load()/reload() so that repairing
+  // the file and reloading restores normal persistence (B-01 AC-6).
+  private readOnlyReason: ReadOnlyReason | null = null;
+  // Session-lived set of reasons for which the user has already been notified.
+  // Never cleared by load(), so repeated reloads in the same state do not
+  // re-show the Notice (B-03 AC-1). A new or different reason notifies once.
+  private notifiedReasons = new Set<ReadOnlyReason>();
   // The schemaVersion read from disk this load (before migration). Used to detect
   // the one-time upgrade across the v10 boundary, where reviewed state moved into
   // durable settings - see shouldLiftLegacyReviewed. Re-evaluated every load.
@@ -79,14 +104,55 @@ export class SettingsManager {
   }
 
   async load(): Promise<void> {
-    const raw = ((await this.plugin.loadData()) ?? {}) as LegacyV0Settings;
+    // Reset health state on each load so repairing the file and reloading
+    // restores normal persistence (B-01 AC-6).
+    this.readOnlyReason = null;
+
+    // loadData outcomes:
+    //   null         -> file absent (genuine first run): migrate + persist (AC-5).
+    //   plain object -> parse it; if future schema, enter read-only mode (P2-08).
+    //   anything else -> present but not readable as settings: never write to disk
+    //                   this session so we cannot clobber a recoverable file with
+    //                   defaults (B-01).
+    //
+    // "anything else" is undefined (Obsidian 1.12.7 resolves undefined on a
+    // JSON.parse failure and null on ENOENT), plus any value that parses but is
+    // not a plain object. An array would otherwise read schemaVersion 0 and get
+    // defaults persisted over it - the same harm through a different door - and a
+    // bare primitive would throw from the `in` check below.
+    //
+    // Obsidian documents no contract for loadData on a corrupt file, so the
+    // try/catch treats a rejected promise identically to undefined in case the
+    // observed behavior changes (B-01 spec).
+    let rawData: unknown;
+    try {
+      rawData = await this.plugin.loadData();
+    } catch {
+      rawData = undefined;
+    }
+
+    if (rawData !== null && !isPlainObject(rawData)) {
+      // B-01: file present but unreadable. Run on in-memory defaults and
+      // never write to disk, preserving the recoverable file.
+      this.readOnlyReason = 'unreadable';
+      this.settings = { ...DEFAULT_SETTINGS };
+      this.incomingVersion = SCHEMA_VERSION;
+      console.warn(
+        '[tag-visibility] data.json could not be read. Running on defaults; ' +
+          'changes will NOT be saved until the file is restored or removed.',
+      );
+      return;
+    }
+
+    const raw = ((rawData ?? {}) as LegacyV0Settings);
     const incomingVersion = (raw.schemaVersion ?? 0) as number;
     this.incomingVersion = incomingVersion;
-    this.futureSchema = incomingVersion > SCHEMA_VERSION;
-    this.settings = this.migrate(raw);
-    if (this.futureSchema) {
+
+    if (incomingVersion > SCHEMA_VERSION) {
       // Newer plugin wrote this vault. Run read-only so no write downgrades it;
       // warn once so a confused user/dev knows why settings will not save.
+      this.readOnlyReason = 'future-schema';
+      this.settings = this.migrate(raw);
       console.warn(
         `[tag-visibility] data.json is schema v${incomingVersion}, newer than this ` +
           `plugin (v${SCHEMA_VERSION}). Running read-only; setting changes will not be ` +
@@ -94,6 +160,8 @@ export class SettingsManager {
       );
       return;
     }
+
+    this.settings = this.migrate(raw);
     // Persist when migrating UP, and also when the file still carries legacy
     // v0 keys: migrate() strips them, so one rewrite heals a file an earlier
     // build persisted with the keys aboard (DA-01). A current-version, clean
@@ -219,15 +287,36 @@ export class SettingsManager {
   }
 
   private async persist(notify = true): Promise<void> {
-    // Skip only the disk write when the on-disk data was written by a newer plugin
-    // version: persisting our older shape would downgrade schemaVersion and could
-    // corrupt fields a newer version reshaped. Listeners STILL fire so the
-    // in-memory change reaches the observers/status bar for this session - else a
-    // toggle in read-only mode would mutate state but never repaint, appearing dead.
-    if (!this.futureSchema) {
+    // Skip the disk write when in read-only mode:
+    //   'future-schema': persisting the older shape would downgrade schemaVersion
+    //                    and corrupt fields a newer version reshaped.
+    //   'unreadable':    persisting would overwrite a recoverable file with defaults.
+    // Listeners STILL fire so the in-memory change reaches the observers/status bar
+    // for this session; without this a toggle in read-only mode would mutate state
+    // but never repaint, appearing dead.
+    if (this.readOnlyReason === null) {
       await this.plugin.saveData(this.settings);
     }
     if (notify) for (const cb of this.listeners) cb();
+  }
+
+  /** The current read-only health state, or null when persistence is normal. */
+  getReadOnlyReason(): ReadOnlyReason | null {
+    return this.readOnlyReason;
+  }
+
+  /**
+   * Returns the current read-only reason the FIRST time it is called for that
+   * reason, then null for that reason on subsequent calls (B-03 AC-1 session
+   * gate). The gate is session-lived and never cleared by load(), so repeated
+   * reloads in the same state do not re-show the Notice. A load that transitions
+   * to a new or different reason will inform the user once for that new reason.
+   */
+  consumeReadOnlyNotice(): ReadOnlyReason | null {
+    if (this.readOnlyReason === null) return null;
+    if (this.notifiedReasons.has(this.readOnlyReason)) return null;
+    this.notifiedReasons.add(this.readOnlyReason);
+    return this.readOnlyReason;
   }
 
   get(): TagCuratorSettings {

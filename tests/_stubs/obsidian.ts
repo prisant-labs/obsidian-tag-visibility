@@ -84,11 +84,22 @@ export class Plugin {
   manifest: { id: string; dir?: string } = { id: 'tag-visibility' };
   registeredEvents: EventRef[] = [];
   registeredCleanups: Array<() => void> = [];
+  /** Counts how many times saveData has been called this instance. */
+  saveCount = 0;
+  /**
+   * When non-null, loadData rejects with this error instead of resolving.
+   * Models the defensive case where Obsidian's loadData promise is rejected
+   * (e.g. due to an unhandled internal error beyond the observed undefined
+   * return on SyntaxError).
+   */
+  loadError: Error | null = null;
 
   async loadData(): Promise<unknown> {
+    if (this.loadError) throw this.loadError;
     return this.data;
   }
   async saveData(data: unknown): Promise<void> {
+    this.saveCount += 1;
     this.data = data;
   }
   registerEvent(ref: EventRef): void {
