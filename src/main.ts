@@ -22,6 +22,7 @@ import { resolveActiveRules } from './engine/presets';
 import { RuleEngine } from './engine/ruleEngine';
 import { panicCleanup } from './ui/panicDisable';
 import { WelcomeModal } from './ui/welcomeModal';
+import { shouldShowWelcomeModal } from './ui/welcomeGate';
 
 /** Scope key for the native tag pane surface; matches the Scope union in types.ts. */
 const TAG_PANE_SCOPE = 'tag-pane';
@@ -376,14 +377,14 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   /**
-   * First-run welcome modal gate (D-008). Fires once when the plugin enables
+   * First-run welcome modal gate (D-008, B-06). Fires once when the plugin enables
    * for the first time on this vault. The post-scan timing means the user
-   * sees a populated tag list immediately after dismissing the modal.
+   * sees a populated tag list immediately after dismissing the modal. The decision
+   * itself lives in shouldShowWelcomeModal so it can be tested.
    */
   private maybeShowWelcomeModal(): void {
     const settings = this.settingsManager.get();
-    if (settings.seenWelcomeModal) return;
-    if (!settings.enabled) return;
+    if (!shouldShowWelcomeModal(settings, this.settingsManager.getReadOnlyReason())) return;
     new WelcomeModal(this.app, this, () => {
       // Modal already persisted seenWelcomeModal and any preview-mode flip;
       // we just refresh derived UI surfaces.
