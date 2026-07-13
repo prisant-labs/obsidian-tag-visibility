@@ -59,6 +59,12 @@ export default class TagCuratorPlugin extends Plugin {
   private nnUnsubscribe: (() => void) | null = null;
   private ribbonEl: HTMLElement | null = null;
   private statusBarEl: HTMLElement | null = null;
+  // The initial vault scan is attempted at layout-ready and, if the metadata cache
+  // was still cold then, again when it resolves. These latch it to exactly one
+  // successful run per session and keep concurrent attempts from overlapping
+  // (metadataCache 'resolved' can fire more than once) - B-05.
+  private initialScanDone = false;
+  private initialScanInFlight = false;
 
   async onload(): Promise<void> {
     this.settingsManager = new SettingsManager(this);
@@ -117,11 +123,7 @@ export default class TagCuratorPlugin extends Plugin {
     // unrelated concerns independent: the NN block's try/catch is scoped to NN API
     // drift and should not swallow scan errors.
     this.app.workspace.onLayoutReady(() => {
-      void this.tagMetaManager.scanAll().then(() => {
-        this.pushMetadata();
-        this.refreshStatusBar();
-        this.maybeShowWelcomeModal();
-      });
+      this.runInitialScan();
     });
 
     // Properties scope (Phase 6). Properties is core Obsidian, so unlike NN this
@@ -197,6 +199,10 @@ export default class TagCuratorPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.metadataCache.on('resolved', () => {
+        // B-05: 'resolved' means Obsidian has finished indexing, so this is the
+        // first moment a full scan is guaranteed to read real tags. If the
+        // layout-ready scan deferred on a cold cache, this is what completes it.
+        this.runInitialScan();
         this.pushMetadata();
         for (const obs of this.observers) obs.attachAll();
         this.refreshStatusBar();
@@ -462,9 +468,40 @@ export default class TagCuratorPlugin extends Plugin {
     new Notice('Tag Visibility: panic disable activated. All DOM effects removed.');
   }
 
+  /**
+   * The one initial vault scan, run once per session (D-01, B-05).
+   *
+   * Deferred to layout-ready so it stays out of Obsidian's sequential plugin-load
+   * chain (D-01). Layout-ready means the workspace is presented, which on a large
+   * vault is still well before the metadata cache has finished indexing, so the
+   * scan can come back cold. scanAll() reports that by returning false, having
+   * changed nothing; the metadataCache 'resolved' handler calls back here once
+   * indexing completes, and that attempt sees real tags (B-05).
+   */
+  private runInitialScan(): void {
+    if (this.initialScanDone || this.initialScanInFlight) return;
+    this.initialScanInFlight = true;
+    void this.tagMetaManager.scanAll().then((scanned) => {
+      this.initialScanInFlight = false;
+      // Cold cache: nothing was read, nothing was written, nothing to push.
+      // 'resolved' will bring us back here.
+      if (!scanned) return;
+      this.initialScanDone = true;
+      this.pushMetadata();
+      this.refreshStatusBar();
+      this.maybeShowWelcomeModal();
+    });
+  }
+
   private async rescanTags(): Promise<void> {
     new Notice('Tag Visibility: rescanning vault tags...');
-    await this.tagMetaManager.scanAll();
+    const scanned = await this.tagMetaManager.scanAll();
+    if (!scanned) {
+      // B-05: the cache was not ready, so the rescan was a no-op by design rather
+      // than a completed rebuild. Saying "complete" here would be a lie.
+      new Notice('Tag Visibility: still indexing the vault. Try the rescan again in a moment.');
+      return;
+    }
     this.pushMetadata();
     this.refreshStatusBar();
     new Notice('Tag Visibility: rescan complete');
