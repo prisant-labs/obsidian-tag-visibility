@@ -937,6 +937,71 @@ describe('SettingsManager - unreadable data.json guard (B-01)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// B-02: an external settings change must rehydrate every consumer
+// ---------------------------------------------------------------------------
+
+describe('SettingsManager.reload fans out to listeners (B-02)', () => {
+  // The listener fan-out used to live only inside persist(), so reload() re-read
+  // the file and told nobody. Anything subscribed via onChange - the state banner
+  // above every surface, most sharply - kept rendering pre-reload state.
+  //
+  // Caught live on 2026-07-13: corrupting data.json under a RUNNING Obsidian fired
+  // onExternalSettingsChange, which correctly re-detected the unreadable file and
+  // raised the transient Notice, but the PERSISTENT read-only banner never
+  // appeared. That is precisely the multi-device sync case B-03's indicator exists
+  // for: a foreign data.json lands mid-session, the toast is missed or fades, and
+  // the user is left with no standing signal at all.
+  it('B-02: reload() notifies onChange listeners', async () => {
+    const plugin = pluginWith({ schemaVersion: SCHEMA_VERSION, enabled: true });
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+
+    let calls = 0;
+    mgr.onChange(() => {
+      calls += 1;
+    });
+
+    await mgr.reload();
+    expect(calls).toBe(1);
+  });
+
+  it('B-02: a listener sees the new read-only reason when a reload enters read-only', async () => {
+    const plugin = pluginWith({ schemaVersion: SCHEMA_VERSION, enabled: true });
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBeNull();
+
+    // What the banner does: re-read the health state whenever it is notified.
+    const seen: Array<string | null> = [];
+    mgr.onChange(() => seen.push(mgr.getReadOnlyReason()));
+
+    // The file goes unreadable underneath us (sync delivers a torn file).
+    plugin.data = undefined;
+    await mgr.reload();
+
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+    // The banner was told, so it can render the persistent indicator (B-03 AC-3).
+    expect(seen).toEqual(['unreadable']);
+  });
+
+  it('B-02: a listener is notified when a repaired file leaves read-only', async () => {
+    const plugin = pluginWith(undefined);
+    const mgr = new SettingsManager(plugin);
+    await mgr.load();
+    expect(mgr.getReadOnlyReason()).toBe('unreadable');
+
+    const seen: Array<string | null> = [];
+    mgr.onChange(() => seen.push(mgr.getReadOnlyReason()));
+
+    plugin.data = { schemaVersion: SCHEMA_VERSION, enabled: true };
+    await mgr.reload();
+
+    // The banner must be told to CLEAR itself too, not only to appear.
+    expect(seen).toEqual([null]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // B-03: Read-only settings mode is visible to the user
 // ---------------------------------------------------------------------------
 

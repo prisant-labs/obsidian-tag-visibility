@@ -393,6 +393,12 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   async onExternalSettingsChange(): Promise<void> {
+    // reload() fans out to every onChange listener (B-02), and the handler
+    // registered in onload() re-pushes rules, overrides, preview mode, the
+    // per-scope enables, the sidecar debounce, and the status bar. So the observer
+    // work this method used to do by hand now happens there, for the state banner
+    // too - which is an onChange subscriber, not an observer, and was therefore the
+    // one consumer a manual re-push could never reach.
     await this.settingsManager.reload();
     // B-01 / B-03: show a Notice if the reloaded file transitions into a new
     // read-only reason. The session gate in consumeReadOnlyNotice() ensures the
@@ -401,18 +407,9 @@ export default class TagCuratorPlugin extends Plugin {
     if (reloadNotice !== null) {
       new Notice(this.readOnlyNoticeText(reloadNotice));
     }
-    const next = this.settingsManager.get();
-    const rules = resolveActiveRules(next);
-    for (const obs of this.observers) {
-      obs.setRules(rules);
-      obs.setOverrides(next.overrides);
-      obs.setPreviewMode(next.previewMode);
-    }
-    this.applyScopeEnabled(TAG_PANE_SCOPE, this.tagPaneObserver, next.enabled);
-    this.applyScopeEnabled(NN_SCOPE, this.nnObserver, next.enabled);
-    this.applyScopeEnabled(PROPERTIES_SCOPE, this.propertiesObserver, next.enabled);
-    this.applyScopeEnabled(AUTOCOMPLETE_SCOPE, this.autocompleteObserver, next.enabled);
-    this.refreshStatusBar();
+    // Not covered by the onChange handler: the pane/ribbon visibility follows
+    // paneEnabled, which a synced settings file can flip (B-02).
+    this.applyPaneEnabled();
   }
 
   /**

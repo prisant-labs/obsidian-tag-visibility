@@ -297,7 +297,11 @@ export class SettingsManager {
     if (this.readOnlyReason === null) {
       await this.plugin.saveData(this.settings);
     }
-    if (notify) for (const cb of this.listeners) cb();
+    if (notify) this.notifyListeners();
+  }
+
+  private notifyListeners(): void {
+    for (const cb of this.listeners) cb();
   }
 
   /** The current read-only health state, or null when persistence is normal. */
@@ -473,7 +477,24 @@ export class SettingsManager {
     };
   }
 
+  /**
+   * Re-read data.json after it changed underneath us (sync delivered a file, the
+   * user hand-edited it, a backup was restored) and tell every consumer (B-02).
+   *
+   * load() deliberately does not notify: it runs during onload, before any surface
+   * has subscribed, and the initial state reaches surfaces by construction.
+   * reload() must, because by then surfaces are live and holding pre-reload state.
+   *
+   * The state banner is the case that proves it. onExternalSettingsChange
+   * re-detects a corrupt or newer-schema data.json and raises the transient Notice,
+   * but the banner learns the health state only through onChange - so without this
+   * fan-out the PERSISTENT read-only indicator never appears. That is exactly the
+   * multi-device sync scenario the indicator exists for (B-03 AC-3): a foreign
+   * data.json lands mid-session, the toast fades or is missed, and the user is left
+   * with no standing signal that their settings will not save.
+   */
   async reload(): Promise<void> {
     await this.load();
+    this.notifyListeners();
   }
 }
