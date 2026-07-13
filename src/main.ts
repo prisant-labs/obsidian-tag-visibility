@@ -105,6 +105,25 @@ export default class TagCuratorPlugin extends Plugin {
       }
     });
 
+    // D-01: defer the vault-wide scan to after layout-ready. onload() runs inside
+    // Obsidian's sequential plugin-load chain; scanAll() walks every markdown file
+    // synchronously before its first await, adding O(vault) cost to that chain and
+    // potentially reading an incomplete metadataCache. onLayoutReady fires after all
+    // enabled plugins have loaded and the workspace is presented, so the scan runs
+    // in a clean async slot. The post-scan continuations (metadata fan-out, status
+    // bar refresh, welcome modal gate) still run in order after the scan completes,
+    // preserving the populated-list-behind-the-modal timing contract (D-008).
+    // A separate callback (not merged into the NN block above) keeps these two
+    // unrelated concerns independent: the NN block's try/catch is scoped to NN API
+    // drift and should not swallow scan errors.
+    this.app.workspace.onLayoutReady(() => {
+      void this.tagMetaManager.scanAll().then(() => {
+        this.pushMetadata();
+        this.refreshStatusBar();
+        this.maybeShowWelcomeModal();
+      });
+    });
+
     // Properties scope (Phase 6). Properties is core Obsidian, so unlike NN this
     // needs NO detection: always construct, seed, and init. The per-scope kill
     // switch gates the effective enabled on top of the global enable that
@@ -239,12 +258,6 @@ export default class TagCuratorPlugin extends Plugin {
       callback: () => {
         void this.rescanTags();
       },
-    });
-
-    void this.tagMetaManager.scanAll().then(() => {
-      this.pushMetadata();
-      this.refreshStatusBar();
-      this.maybeShowWelcomeModal();
     });
 
     this.refreshStatusBar();
