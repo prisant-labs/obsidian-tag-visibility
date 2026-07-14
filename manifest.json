@@ -1,7 +1,7 @@
 {
 	"id": "tag-visibility",
 	"name": "Tag Visibility",
-	"version": "1.0.0-rc.11",
+	"version": "1.0.0-rc.12",
 	"minAppVersion": "1.9.10",
 	"description": "Control which tags are visible across Obsidian's UI: hide, flag, or always-show any tag. Display-only, file-safe, fully reversible.",
 	"author": "Prisant Labs",
