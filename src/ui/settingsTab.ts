@@ -11,7 +11,6 @@ import TagCuratorPlugin from '../main';
 import { PRESETS, resolveActiveRules } from '../engine/presets';
 import { RuleEditor } from './ruleEditor';
 import { StateBanner } from './stateBanner';
-import { Mode } from '../types';
 import { detectNotebookNavigator, MIN_API_VERSION } from '../integrations/notebookNavigator';
 import { TagTable } from './curationWorkspace/tagTable';
 import { TagListModel } from './tagList/tagListModel';
@@ -906,22 +905,10 @@ export class TagCuratorSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(panel).setName('Mode (advanced)').setHeading();
-    new Setting(panel)
-      .setName('Mode')
-      .setDesc(
-        'How Tag Visibility filters tags. Default (hide matched) is the only mode today; allow-only and inbox modes are planned.',
-      )
-      .addDropdown((d) => {
-        // Only Default is implemented. Offering allow-only/inbox here would let a
-        // user select a mode the engine does not honor yet, so they are withheld
-        // until they ship rather than shown as dead options.
-        d.addOption('default', 'Default (hide matched)')
-          .setValue('default')
-          .onChange(async (v) => {
-            await this.plugin.settingsManager.update({ mode: v as Mode });
-          });
-      });
+    // No Mode control: 'default' (hide matched) is the only mode the engine
+    // honors, so a one-option dropdown was a dead control that also advertised
+    // unshipped modes. settings.mode still exists and stays 'default'; restore a
+    // control here when a second mode actually ships (B016 allow-only).
   }
 
   private async reindexVault(): Promise<void> {
