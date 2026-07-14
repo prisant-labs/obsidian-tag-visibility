@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Presets**: each preset shows a live affected-count that clicks through to the matching tags.
 - **Thin Settings**: Settings becomes set-once config, consolidated from an earlier ten-tab layout into a focused set (General, All tags, Scopes & integrations, Presets, Custom rules, Advanced, Help). Integration rows show status pills and action links.
 - **Style Settings registration**: CSS variables registered with Style Settings so themers and power users can restyle hidden and flagged tags with no code; sensible defaults apply when Style Settings is absent.
-- **Tag Wrangler delegation**: a per-row "Rename with Tag Wrangler" menu item and a bulk "Send to Tag Wrangler" action when Tag Wrangler is present; gracefully hidden or disabled when absent.
+- **Tag Wrangler delegation**: a per-row "Rename with Tag Wrangler" menu item, shown when Tag Wrangler is present and simply absent when it is not. It opens Tag Wrangler's own rename dialog for that tag; Tag Visibility never renames a tag itself. Renaming is per-tag by design, because Tag Wrangler renames one tag at a time through a dialog.
 - **Trust layer polish**: a welcome modal that leads with the plugin name and de-overclaims, the persistent non-default-state banner, panic disable that clears every scope at once, and an honest, scope-independent status bar.
 
 ### Changed

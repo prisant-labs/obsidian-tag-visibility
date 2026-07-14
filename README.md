@@ -153,7 +153,7 @@ The Tag Visibility panel is where you browse and triage tags. It holds:
 - **The tag table.** Every tag in your vault with its count, when it was last indexed, source (frontmatter or inline), a visibility indicator, and the rule (if any) affecting it. Sortable, searchable, virtualized for large vaults.
 - **Filter chips.** One-click filters: All, Visible, Hidden, Orphans, Flagged, Frontmatter, Inline, Unreviewed. (A by-rule filter is additionally available in the Settings > All tags grid.)
 - **View and Manage modes.** View browses tags (tap a tag to search for it); Manage is the full grid with selection, bulk actions, and overrides.
-- **Bulk actions.** Select several tags, then hide, unhide, mark reviewed, or send them to Tag Wrangler in one action.
+- **Bulk actions.** Select several tags, then hide, unhide, or mark them reviewed in one action. (Renaming is per-tag, on the row menu: Tag Wrangler renames one tag at a time through its own dialog.)
 - **Per-tag overrides.** Pin any row to always-show (the safety net) or always-hide, ahead of every rule.
 - **Per-row diagnostics.** On any row, ask "why is this affected?" and Tag Visibility names the exact preset, rule, or override responsible. A tag is never hidden without a traceable reason.
 

@@ -510,7 +510,7 @@ export class TagCuratorSettingTab extends PluginSettingTab {
       panel,
       'tag-wrangler',
       'Tag Wrangler',
-      'Delegate tag renaming; "Send to Tag Wrangler" appears in the panel when it is enabled.',
+      'Delegate tag renaming; "Rename with Tag Wrangler" appears on a tag\'s row menu when it is enabled.',
     );
     this.renderCapabilityIntegration(
       panel,
