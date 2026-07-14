@@ -29,8 +29,7 @@ const INTEGRATIONS: IntegrationDescriptor[] = [
     id: 'tag-wrangler',
     name: 'Tag Wrangler',
     bullets: [
-      'Per-row "Rename with Tag Wrangler" hands a tag off to Tag Wrangler so renames stay safe.',
-      'The "Send to Tag Wrangler" bulk action in the Tag Visibility panel delegates renaming to Tag Wrangler.',
+      'Per-row "Rename with Tag Wrangler" opens Tag Wrangler\'s own rename dialog for that tag, so renames stay safe. Tag Visibility never renames a tag itself.',
     ],
   },
   {

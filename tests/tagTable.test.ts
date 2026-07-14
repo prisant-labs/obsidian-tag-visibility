@@ -80,7 +80,7 @@ function source(metas: TagMeta[], rules: Rule[] = []): TagListDataSource {
 function actionsHost(): TagActionsHost {
   return {
     isPluginEnabled: () => false,
-    executeCommand: () => false,
+    getPluginInstance: () => null,
     setOverride: () => {},
     setReviewedBulk: () => {},
   };

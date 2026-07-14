@@ -39,11 +39,15 @@ export function makeTagTableDeps(
 
   const actionsHost: TagActionsHost = {
     isPluginEnabled,
-    executeCommand: (id) => {
-      const commands = (app as unknown as {
-        commands?: { executeCommandById?: (id: string) => boolean };
-      }).commands;
-      return Boolean(commands?.executeCommandById?.(id));
+    // Runtime interop only (DA-26): hand back the live plugin instance and let
+    // the caller feature-detect what it needs. We never import from another
+    // plugin. The old executeCommand() existed solely to fire a Tag Wrangler
+    // command that does not exist, and is gone with it.
+    getPluginInstance: (id) => {
+      const plugins = (app as unknown as {
+        plugins?: { plugins?: Record<string, unknown> };
+      }).plugins;
+      return plugins?.plugins?.[id] ?? null;
     },
     setOverride: (tag, value) => plugin.settingsManager.setOverride(tag, value),
     setReviewedBulk: (tags, value) => plugin.tagMetaManager.setReviewedBulk(tags, value),

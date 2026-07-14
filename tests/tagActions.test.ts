@@ -4,45 +4,77 @@ import { TagActions, TagActionsHost } from '../src/ui/tagList/tagActions';
 function host(overrides: Partial<TagActionsHost> = {}): TagActionsHost {
   return {
     isPluginEnabled: () => true,
-    executeCommand: () => true,
+    getPluginInstance: () => null,
     setOverride: () => {},
     setReviewedBulk: () => {},
     ...overrides,
   };
 }
 
-describe('TagActions.sendToTagWrangler', () => {
-  it('returns 0 and dispatches nothing when Tag Wrangler is absent', () => {
-    let calls = 0;
+/** A stand-in for Tag Wrangler's plugin instance; `rename` is its real method. */
+function tagWrangler(renamed: string[]): { rename: (tag: string) => void } {
+  return { rename: (tag: string) => void renamed.push(tag) };
+}
+
+/**
+ * DA-26. The old sendToTagWrangler() fired executeCommandById('tag-wrangler:rename-tag')
+ * once per tag and never read tags[i]. Tag Wrangler registers NO commands, so the id
+ * did not exist; and executeCommandById takes no arguments, so the tag could not have
+ * been passed even if it had. The feature never worked.
+ *
+ * The test that used to live here asserted the command id fired three times and passed,
+ * because it was written against the same misunderstanding. These tests assert the only
+ * thing that actually matters: does the TAG reach Tag Wrangler.
+ */
+describe('TagActions.renameWithTagWrangler (DA-26)', () => {
+  it('passes the tag name to Tag Wrangler.rename', () => {
+    const renamed: string[] = [];
+    const actions = new TagActions(
+      host({ getPluginInstance: () => tagWrangler(renamed) }),
+    );
+    expect(actions.renameWithTagWrangler('project/atlas')).toBe(true);
+    expect(renamed).toEqual(['project/atlas']);
+  });
+
+  it('passes the bare name, with no leading hash (matches Tag Wrangler and our keys)', () => {
+    const renamed: string[] = [];
+    const actions = new TagActions(
+      host({ getPluginInstance: () => tagWrangler(renamed) }),
+    );
+    actions.renameWithTagWrangler('status/done');
+    expect(renamed[0].startsWith('#')).toBe(false);
+  });
+
+  it('does nothing when Tag Wrangler is not enabled', () => {
+    const renamed: string[] = [];
     const actions = new TagActions(
       host({
         isPluginEnabled: () => false,
-        executeCommand: () => {
-          calls += 1;
-          return true;
-        },
+        getPluginInstance: () => tagWrangler(renamed),
       }),
     );
-    expect(actions.sendToTagWrangler(['a', 'b'])).toBe(0);
-    expect(calls).toBe(0);
+    expect(actions.renameWithTagWrangler('a')).toBe(false);
+    expect(renamed).toEqual([]);
   });
 
-  it('dispatches the rename command once per tag and counts successes', () => {
-    const ids: string[] = [];
+  it('degrades to false if Tag Wrangler drops rename() (API drift), never throws', () => {
+    const actions = new TagActions(
+      host({ getPluginInstance: () => ({}) }), // instance present, no rename method
+    );
+    expect(actions.renameWithTagWrangler('a')).toBe(false);
+  });
+
+  it('degrades to false if rename() throws, never propagates', () => {
     const actions = new TagActions(
       host({
-        executeCommand: (id) => {
-          ids.push(id);
-          return true;
-        },
+        getPluginInstance: () => ({
+          rename: () => {
+            throw new Error('tag wrangler exploded');
+          },
+        }),
       }),
     );
-    expect(actions.sendToTagWrangler(['a', 'b', 'c'])).toBe(3);
-    expect(ids).toEqual([
-      'tag-wrangler:rename-tag',
-      'tag-wrangler:rename-tag',
-      'tag-wrangler:rename-tag',
-    ]);
+    expect(actions.renameWithTagWrangler('a')).toBe(false);
   });
 });
 
@@ -84,11 +116,6 @@ describe('TagActions visibility and bulk', () => {
       ['a', 'hide'],
       ['b', 'hide'],
     ]);
-  });
-
-  it('applyBulk routes send-to-tag-wrangler to a dispatch count', async () => {
-    const actions = new TagActions(host());
-    expect(await actions.applyBulk(['a', 'b'], 'send-to-tag-wrangler')).toBe(2);
   });
 
   it('applyBulk routes hide to a real hide override result', async () => {

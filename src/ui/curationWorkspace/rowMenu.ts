@@ -13,7 +13,7 @@
  * Menu or a full DOM, so forcing a brittle DOM test would test the stub, not
  * the plugin.
  */
-import { Menu, setIcon } from 'obsidian';
+import { Menu, Notice, setIcon } from 'obsidian';
 import { RuleEngine } from '../../engine/ruleEngine';
 import { TagOverride } from '../../types';
 import { TagActions, VisibilityIntent } from '../tagList/tagActions';
@@ -81,10 +81,11 @@ export function openRowMenu(
     overrideItem(spec.title, spec.icon, spec.intent);
   }
 
-  // Tag Wrangler delegation (D-016, optional): only offered when Tag Wrangler
-  // is enabled. Reuses the tested TagActions.sendToTagWrangler dispatch (which
-  // executes 'tag-wrangler:rename-tag'); no rename logic lives here. When Tag
-  // Wrangler is absent the item is simply not shown.
+  // Tag Wrangler delegation (D-016, optional): only offered when Tag Wrangler is
+  // enabled. Routes through TagActions.renameWithTagWrangler, which calls Tag
+  // Wrangler's own rename(tag) at runtime (DA-26); no rename logic lives here,
+  // and Tag Visibility never renames a tag itself. Absent Tag Wrangler, the item
+  // is simply not shown.
   if (host.isPluginEnabled('tag-wrangler')) {
     menu.addSeparator();
     menu.addItem((item) =>
@@ -92,7 +93,14 @@ export function openRowMenu(
         .setTitle('Rename with Tag Wrangler')
         .setIcon('pencil')
         .onClick(() => {
-          actions.sendToTagWrangler([tag]);
+          // DA-26: hands the tag to Tag Wrangler's own rename dialog. If the
+          // hand-off fails (its API moved), say so rather than no-op silently -
+          // a menu item that does nothing is what this bug WAS.
+          if (!actions.renameWithTagWrangler(tag)) {
+            new Notice(
+              'Tag Visibility: could not hand this tag to Tag Wrangler. Rename it from the tag pane instead.',
+            );
+          }
         }),
     );
   }

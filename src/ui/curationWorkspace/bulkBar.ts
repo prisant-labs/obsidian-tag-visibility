@@ -3,7 +3,7 @@
  *
  * Mirrors the Advanced Tables toolbar pattern: invisible when nothing is
  * selected, appearing only once the model holds a selection. Buttons route
- * through TagActions.applyBulk (Hide / Unhide) and TagActions.sendToTagWrangler.
+ * through TagActions.applyBulk (Hide / Unhide / Mark reviewed).
  *
  * NOTE: There is no Flag bulk action. "flagged" is a derived display state of
  * Preview mode, not a per-tag pin you can bulk-apply, and the override store
@@ -11,8 +11,9 @@
  * flag override is ever added to the model/actions (see BulkAction), add the
  * button here.
  *
- * Tag Wrangler is gated (D-016): disabled with an explanatory tooltip when the
- * tag-wrangler plugin is not enabled.
+ * There is no Tag Wrangler button (DA-26): renaming is a one-tag-at-a-time modal
+ * flow, so it lives on the row menu, not here. The button that used to sit here
+ * fired a Tag Wrangler command that does not exist.
  */
 import { setIcon } from 'obsidian';
 import { TagListModel } from '../tagList/tagListModel';
@@ -22,8 +23,6 @@ import { TagListDiagnosticsHost } from './tagTableHost';
 export class BulkBar {
   private root: HTMLElement;
   private countEl: HTMLElement;
-  // Stored so update() can reflect the live Tag Wrangler state each call.
-  private twBtn: HTMLButtonElement;
   // Stored click handlers so destroy() can remove them.
   private readonly clickHandlers: Array<{ el: HTMLElement; fn: EventListener }> = [];
 
@@ -42,13 +41,11 @@ export class BulkBar {
     this.addButton('Unhide', 'eye', () => this.runBulk('unhide'));
     this.addButton('Mark reviewed', 'check', () => this.runBulk('mark-reviewed'));
 
-    // Tag Wrangler gate is intentionally NOT evaluated here; update() checks
-    // isPluginEnabled() on every call so the button reflects current state.
-    // Short label ("Tag Wrangler") keeps the bar compact; the pencil icon and
-    // tooltip convey the rename action.
-    this.twBtn = this.addButton('Tag Wrangler', 'pencil', () =>
-      this.runBulk('send-to-tag-wrangler'),
-    );
+    // No Tag Wrangler button (DA-26). Tag Wrangler renames through a modal
+    // dialog, one tag at a time, so a bulk hand-off would stack N modals. It is
+    // not a coherent bulk action and never was: the button that used to sit here
+    // fired a Tag Wrangler command that does not exist, and lit up as if it had
+    // worked. Renaming lives on the row menu, where it applies to one tag.
 
     this.addButton('Clear', 'x', () => {
       this.model.clearSelection();
@@ -91,18 +88,6 @@ export class BulkBar {
     }
     this.root.removeClass('tc-hidden');
     this.countEl.setText(`${count} selected`);
-
-    // Re-evaluate Tag Wrangler availability on every update so the button
-    // reflects the current plugin state if it was toggled while the bar is open.
-    const twEnabled = this.host.isPluginEnabled('tag-wrangler');
-    this.twBtn.disabled = !twEnabled;
-    if (twEnabled) {
-      this.twBtn.removeAttribute('aria-label');
-      this.twBtn.removeAttribute('title');
-    } else {
-      this.twBtn.setAttribute('aria-label', 'Install Tag Wrangler to enable rename');
-      this.twBtn.setAttribute('title', 'Install Tag Wrangler to enable rename');
-    }
   }
 
   /** Remove all event listeners and detach the bar from the DOM. */
