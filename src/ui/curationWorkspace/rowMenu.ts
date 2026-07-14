@@ -93,10 +93,14 @@ export function openRowMenu(
         .setTitle('Rename with Tag Wrangler')
         .setIcon('pencil')
         .onClick(() => {
-          // DA-26: hands the tag to Tag Wrangler's own rename dialog. If the
-          // hand-off fails (its API moved), say so rather than no-op silently -
-          // a menu item that does nothing is what this bug WAS.
-          if (!actions.renameWithTagWrangler(tag)) {
+          // DA-26: hands the tag to Tag Wrangler's own rename dialog. Both
+          // failure paths must SPEAK - a menu item that does nothing is what this
+          // bug WAS. The hand-off itself can fail (its API moved), and the rename
+          // can fail asynchronously afterwards.
+          const handedOff = actions.renameWithTagWrangler(tag, () => {
+            new Notice(`Tag Visibility: Tag Wrangler could not rename #${tag}.`);
+          });
+          if (!handedOff) {
             new Notice(
               'Tag Visibility: could not hand this tag to Tag Wrangler. Rename it from the tag pane instead.',
             );

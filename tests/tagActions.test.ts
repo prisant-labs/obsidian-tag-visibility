@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TagActions, TagActionsHost } from '../src/ui/tagList/tagActions';
 
 function host(overrides: Partial<TagActionsHost> = {}): TagActionsHost {
@@ -64,7 +64,7 @@ describe('TagActions.renameWithTagWrangler (DA-26)', () => {
     expect(actions.renameWithTagWrangler('a')).toBe(false);
   });
 
-  it('degrades to false if rename() throws, never propagates', () => {
+  it('degrades to false if rename() throws synchronously, never propagates', () => {
     const actions = new TagActions(
       host({
         getPluginInstance: () => ({
@@ -75,6 +75,49 @@ describe('TagActions.renameWithTagWrangler (DA-26)', () => {
       }),
     );
     expect(actions.renameWithTagWrangler('a')).toBe(false);
+  });
+
+  // Tag Wrangler's rename() is async. It currently catches its own errors, so it
+  // does not reject today - but we duck-type the API precisely so we never depend
+  // on its internals. A rejecting rename must not become an unhandled rejection,
+  // and it must not fail silently either. (Raised by an adversarial review.)
+  it('reports an async rename failure instead of swallowing it', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failures: unknown[] = [];
+    const actions = new TagActions(
+      host({
+        getPluginInstance: () => ({
+          rename: () => Promise.reject(new Error('rename blew up later')),
+        }),
+      }),
+    );
+
+    // The hand-off itself succeeded: we called rename and it did not throw.
+    expect(actions.renameWithTagWrangler('a', (e) => void failures.push(e))).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 0)); // let the rejection settle
+
+    expect(failures).toHaveLength(1); // the caller was told, so the UI can speak
+    expect(errors).toHaveBeenCalled(); // and it was logged
+    errors.mockRestore();
+  });
+
+  it('does NOT await the rename, so a slow modal never blocks the caller', () => {
+    // rename() opens a modal: its promise settles when the USER finishes or
+    // cancels. Awaiting it would make a cancelled rename look like a failed
+    // hand-off. renameWithTagWrangler must return synchronously, before the
+    // promise settles.
+    let settle: (() => void) | null = null;
+    const actions = new TagActions(
+      host({
+        getPluginInstance: () => ({
+          rename: () => new Promise<void>((res) => { settle = res; }),
+        }),
+      }),
+    );
+    expect(actions.renameWithTagWrangler('a')).toBe(true);
+    expect(settle).not.toBeNull(); // still pending, and we already returned
+    settle?.();
   });
 });
 

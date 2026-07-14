@@ -65,16 +65,41 @@ export class TagActions {
    *
    * Single-tag only, deliberately. Tag Wrangler renames through a modal dialog,
    * so a bulk hand-off would fire N stacked modals; the bulk button is gone.
+   *
+   * Returns whether the HAND-OFF was made, not whether the rename completed.
+   *
+   * NOT awaited, deliberately. rename() is async and opens a modal, so its promise
+   * settles when the USER finishes or cancels. Awaiting it would make a CANCELLED
+   * rename look like a failed hand-off - a silent-failure lie in the other
+   * direction. (An adversarial review recommended awaiting; that is the trap.)
+   *
+   * The rejection guard is still required. Tag Wrangler's rename() currently
+   * catches its own errors and raises its own Notice, so it does not reject today -
+   * but we DUCK-TYPE this API precisely so we never depend on its internals, and
+   * relying on that internal catch would be exactly the assumption we refuse to
+   * make. A future rename() that rejects would otherwise leave an unhandled
+   * rejection while we cheerfully returned true.
+   *
+   * onAsyncFailure lets the caller tell the user when the rename fails AFTER a
+   * successful hand-off. Silence is the bug this whole change exists to kill.
    */
-  renameWithTagWrangler(tag: string): boolean {
+  renameWithTagWrangler(
+    tag: string,
+    onAsyncFailure?: (err: unknown) => void,
+  ): boolean {
     if (!this.tagWranglerInstalled()) return false;
     const tw = this.hostApi.getPluginInstance('tag-wrangler') as TagWranglerLike | null;
     if (typeof tw?.rename !== 'function') return false;
     try {
-      void tw.rename(tag);
+      const pending = tw.rename(tag);
+      void Promise.resolve(pending).catch((err: unknown) => {
+        console.error(`[tag-visibility] Tag Wrangler failed to rename #${tag}`, err);
+        onAsyncFailure?.(err);
+      });
       return true;
-    } catch {
-      // Tag Wrangler changed its API or threw. Degrade, never take the app down.
+    } catch (err) {
+      // A synchronous throw: the hand-off never happened at all.
+      console.error(`[tag-visibility] could not hand #${tag} to Tag Wrangler`, err);
       return false;
     }
   }
