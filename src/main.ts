@@ -1,5 +1,5 @@
 import { Notice, Platform, Plugin, TFile, WorkspaceLeaf } from 'obsidian';
-import { SettingsManager } from './storage/settings';
+import { SettingsManager, type ReadOnlyReason } from './storage/settings';
 import { TagMetaManager } from './storage/tagMeta';
 import { ObserverBase } from './observers/observerBase';
 import { TagPaneObserver } from './observers/tagPaneObserver';
@@ -22,6 +22,7 @@ import { resolveActiveRules } from './engine/presets';
 import { RuleEngine } from './engine/ruleEngine';
 import { panicCleanup } from './ui/panicDisable';
 import { WelcomeModal } from './ui/welcomeModal';
+import { shouldShowWelcomeModal } from './ui/welcomeGate';
 
 /** Scope key for the native tag pane surface; matches the Scope union in types.ts. */
 const TAG_PANE_SCOPE = 'tag-pane';
@@ -59,10 +60,23 @@ export default class TagCuratorPlugin extends Plugin {
   private nnUnsubscribe: (() => void) | null = null;
   private ribbonEl: HTMLElement | null = null;
   private statusBarEl: HTMLElement | null = null;
+  // The initial vault scan is attempted at layout-ready and, if the metadata cache
+  // was still cold then, again when it resolves. These latch it to exactly one
+  // successful run per session and keep concurrent attempts from overlapping
+  // (metadataCache 'resolved' can fire more than once) - B-05.
+  private initialScanDone = false;
+  private initialScanInFlight = false;
 
   async onload(): Promise<void> {
     this.settingsManager = new SettingsManager(this);
     await this.settingsManager.load();
+    // B-01 / B-03: inform the user (once per session) when settings are in a
+    // read-only degraded state. consumeReadOnlyNotice() gates to at most one
+    // Notice per reason per session so repeated reloads do not nag.
+    const loadNotice = this.settingsManager.consumeReadOnlyNotice();
+    if (loadNotice !== null) {
+      new Notice(this.readOnlyNoticeText(loadNotice));
+    }
     const settings = this.settingsManager.get();
 
     // SettingsManager is the durable reviewed-tag store (P2-09): reviewed state
@@ -81,7 +95,37 @@ export default class TagCuratorPlugin extends Plugin {
 
     // Notebook Navigator scope (Phase 5B). Detection-gated: absent = silent
     // no-op, too-old = one-time notice + skip, ready + scope enabled = wire it.
-    this.setupNotebookNavigator(settings);
+    // Deferred to onLayoutReady: community plugins load sequentially in enable
+    // order, so probing the registry synchronously here reads NN as absent in
+    // any vault where this plugin loads before NN - permanently, every session
+    // (DA-02). onLayoutReady fires after every enabled plugin has loaded. The
+    // try/catch keeps third-party API drift inside the NN seam from escaping
+    // as an uncaught error (DA-16).
+    this.app.workspace.onLayoutReady(() => {
+      try {
+        this.setupNotebookNavigator(this.settingsManager.get());
+      } catch (e) {
+        console.error(
+          '[tag-visibility] Notebook Navigator integration failed to attach; the NN scope is off for this session.',
+          e,
+        );
+      }
+    });
+
+    // D-01: defer the vault-wide scan to after layout-ready. onload() runs inside
+    // Obsidian's sequential plugin-load chain; scanAll() walks every markdown file
+    // synchronously before its first await, adding O(vault) cost to that chain and
+    // potentially reading an incomplete metadataCache. onLayoutReady fires after all
+    // enabled plugins have loaded and the workspace is presented, so the scan runs
+    // in a clean async slot. The post-scan continuations (metadata fan-out, status
+    // bar refresh, welcome modal gate) still run in order after the scan completes,
+    // preserving the populated-list-behind-the-modal timing contract (D-008).
+    // A separate callback (not merged into the NN block above) keeps these two
+    // unrelated concerns independent: the NN block's try/catch is scoped to NN API
+    // drift and should not swallow scan errors.
+    this.app.workspace.onLayoutReady(() => {
+      this.runInitialScan();
+    });
 
     // Properties scope (Phase 6). Properties is core Obsidian, so unlike NN this
     // needs NO detection: always construct, seed, and init. The per-scope kill
@@ -109,7 +153,7 @@ export default class TagCuratorPlugin extends Plugin {
     this.autocompleteObserver.init();
 
     // The legacy "Vault tags" TagListView (D-012) was retired pre-1.0: the
-    // Curation Workspace pane plus the All Tags settings tab are the single
+    // Curation Workspace pane plus the All tags settings tab are the single
     // tag-surface family, so the old leaf no longer registers or opens.
     this.registerView(
       CURATION_VIEW_TYPE,
@@ -156,6 +200,10 @@ export default class TagCuratorPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.metadataCache.on('resolved', () => {
+        // B-05: 'resolved' means Obsidian has finished indexing, so this is the
+        // first moment a full scan is guaranteed to read real tags. If the
+        // layout-ready scan deferred on a cold cache, this is what completes it.
+        this.runInitialScan();
         this.pushMetadata();
         for (const obs of this.observers) obs.attachAll();
         this.refreshStatusBar();
@@ -194,7 +242,7 @@ export default class TagCuratorPlugin extends Plugin {
       name: 'Open the panel',
       callback: () => {
         if (!this.settingsManager.get().paneEnabled) {
-          new Notice('Enable the Tag Visibility Pane in Settings -> General to dock it.');
+          new Notice('Enable the Tag Visibility pane in Settings -> General to dock it.');
           return;
         }
         void this.openCurationWorkspace();
@@ -205,7 +253,7 @@ export default class TagCuratorPlugin extends Plugin {
       name: 'Open beside the tag pane',
       callback: () => {
         if (!this.settingsManager.get().paneEnabled) {
-          new Notice('Enable the Tag Visibility Pane in Settings -> General to dock it.');
+          new Notice('Enable the Tag Visibility pane in Settings -> General to dock it.');
           return;
         }
         void this.openBesideTagPane();
@@ -217,12 +265,6 @@ export default class TagCuratorPlugin extends Plugin {
       callback: () => {
         void this.rescanTags();
       },
-    });
-
-    void this.tagMetaManager.scanAll().then(() => {
-      this.pushMetadata();
-      this.refreshStatusBar();
-      this.maybeShowWelcomeModal();
     });
 
     this.refreshStatusBar();
@@ -335,14 +377,14 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   /**
-   * First-run welcome modal gate (D-008). Fires once when the plugin enables
+   * First-run welcome modal gate (D-008, B-06). Fires once when the plugin enables
    * for the first time on this vault. The post-scan timing means the user
-   * sees a populated tag list immediately after dismissing the modal.
+   * sees a populated tag list immediately after dismissing the modal. The decision
+   * itself lives in shouldShowWelcomeModal so it can be tested.
    */
   private maybeShowWelcomeModal(): void {
     const settings = this.settingsManager.get();
-    if (settings.seenWelcomeModal) return;
-    if (!settings.enabled) return;
+    if (!shouldShowWelcomeModal(settings, this.settingsManager.getReadOnlyReason())) return;
     new WelcomeModal(this.app, this, () => {
       // Modal already persisted seenWelcomeModal and any preview-mode flip;
       // we just refresh derived UI surfaces.
@@ -351,19 +393,41 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   async onExternalSettingsChange(): Promise<void> {
+    // reload() fans out to every onChange listener (B-02), and the handler
+    // registered in onload() re-pushes rules, overrides, preview mode, the
+    // per-scope enables, the sidecar debounce, and the status bar. So the observer
+    // work this method used to do by hand now happens there, for the state banner
+    // too - which is an onChange subscriber, not an observer, and was therefore the
+    // one consumer a manual re-push could never reach.
     await this.settingsManager.reload();
-    const next = this.settingsManager.get();
-    const rules = resolveActiveRules(next);
-    for (const obs of this.observers) {
-      obs.setRules(rules);
-      obs.setOverrides(next.overrides);
-      obs.setPreviewMode(next.previewMode);
+    // B-01 / B-03: show a Notice if the reloaded file transitions into a new
+    // read-only reason. The session gate in consumeReadOnlyNotice() ensures the
+    // same reason is not shown again (B-03 AC-1).
+    const reloadNotice = this.settingsManager.consumeReadOnlyNotice();
+    if (reloadNotice !== null) {
+      new Notice(this.readOnlyNoticeText(reloadNotice));
     }
-    this.applyScopeEnabled(TAG_PANE_SCOPE, this.tagPaneObserver, next.enabled);
-    this.applyScopeEnabled(NN_SCOPE, this.nnObserver, next.enabled);
-    this.applyScopeEnabled(PROPERTIES_SCOPE, this.propertiesObserver, next.enabled);
-    this.applyScopeEnabled(AUTOCOMPLETE_SCOPE, this.autocompleteObserver, next.enabled);
-    this.refreshStatusBar();
+    // Not covered by the onChange handler: the pane/ribbon visibility follows
+    // paneEnabled, which a synced settings file can flip (B-02).
+    this.applyPaneEnabled();
+  }
+
+  /**
+   * Human-readable Notice text for each read-only reason (B-01, B-03 AC-2).
+   * Names the cause and the remedy; prefixed with the plugin name per convention.
+   */
+  private readOnlyNoticeText(reason: ReadOnlyReason): string {
+    if (reason === 'unreadable') {
+      return (
+        'Tag Visibility: settings could not be read (data.json unreadable). ' +
+        'Running on defaults; changes will not be saved until the file is ' +
+        'restored or removed.'
+      );
+    }
+    return (
+      'Tag Visibility: settings were written by a newer version of the plugin. ' +
+      'Changes will not be saved until this device updates the plugin.'
+    );
   }
 
   onunload(): void {
@@ -402,9 +466,40 @@ export default class TagCuratorPlugin extends Plugin {
     new Notice('Tag Visibility: panic disable activated. All DOM effects removed.');
   }
 
+  /**
+   * The one initial vault scan, run once per session (D-01, B-05).
+   *
+   * Deferred to layout-ready so it stays out of Obsidian's sequential plugin-load
+   * chain (D-01). Layout-ready means the workspace is presented, which on a large
+   * vault is still well before the metadata cache has finished indexing, so the
+   * scan can come back cold. scanAll() reports that by returning false, having
+   * changed nothing; the metadataCache 'resolved' handler calls back here once
+   * indexing completes, and that attempt sees real tags (B-05).
+   */
+  private runInitialScan(): void {
+    if (this.initialScanDone || this.initialScanInFlight) return;
+    this.initialScanInFlight = true;
+    void this.tagMetaManager.scanAll().then((scanned) => {
+      this.initialScanInFlight = false;
+      // Cold cache: nothing was read, nothing was written, nothing to push.
+      // 'resolved' will bring us back here.
+      if (!scanned) return;
+      this.initialScanDone = true;
+      this.pushMetadata();
+      this.refreshStatusBar();
+      this.maybeShowWelcomeModal();
+    });
+  }
+
   private async rescanTags(): Promise<void> {
     new Notice('Tag Visibility: rescanning vault tags...');
-    await this.tagMetaManager.scanAll();
+    const scanned = await this.tagMetaManager.scanAll();
+    if (!scanned) {
+      // B-05: the cache was not ready, so the rescan was a no-op by design rather
+      // than a completed rebuild. Saying "complete" here would be a lie.
+      new Notice('Tag Visibility: still indexing the vault. Try the rescan again in a moment.');
+      return;
+    }
     this.pushMetadata();
     this.refreshStatusBar();
     new Notice('Tag Visibility: rescan complete');
@@ -453,16 +548,18 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   /**
-   * Count the tags the engine curates (would hide), independent of any scope's
-   * DOM. Mirrors how TagListModel and ObserverBase decide a tag is hidden: its
-   * effective match is non-null AND is not an always-show override (which keeps
-   * the tag visible as the safety net). The SAME set is the "hidden" count in
-   * normal mode and the "flagged" count in preview mode, so the status bar is
-   * correct whether or not individual scopes (tag-pane, NN, properties,
-   * autocomplete) are toggled. Pure given settings + tag metadata; no DOM.
+   * Split the curated tags by intent (hide vs flag), independent of any scope's
+   * DOM. Mirrors how TagListModel and ObserverBase decide a tag is decorated: its
+   * effective match is non-null AND is not an always-show override (the safety
+   * net that keeps a tag visible). The SAME buckets hold in normal and preview
+   * mode - preview only repaints them - so the status bar is correct whether or
+   * not individual scopes (tag-pane, NN, properties, autocomplete) are toggled.
+   * Pure given settings + tag metadata; no DOM.
    */
-  private countCurated(settings: ReturnType<SettingsManager['get']>): number {
-    return RuleEngine.countCurated(
+  private countByIntent(
+    settings: ReturnType<SettingsManager['get']>,
+  ): { hide: number; flag: number } {
+    return RuleEngine.countByIntent(
       this.tagMetaManager.all(),
       resolveActiveRules(settings),
       settings.overrides,
@@ -470,12 +567,13 @@ export default class TagCuratorPlugin extends Plugin {
   }
 
   /**
-   * Public accessor for the scope-independent engine count, used by the
-   * Settings "Hidden now" stat card (and any future surface that needs the same
-   * number). Always equals the status-bar count.
+   * Public accessor for the scope-independent hide count, used by the Settings
+   * "Hidden now" stat card. Counts only true hides: a flag rule marks a tag but
+   * does not hide it, so it is excluded here (and shown separately in the status
+   * bar). Equals the status bar's hidden figure.
    */
   curatedCount(): number {
-    return this.countCurated(this.settingsManager.get());
+    return this.countByIntent(this.settingsManager.get()).hide;
   }
 
   private refreshStatusBar(): void {
@@ -486,14 +584,19 @@ export default class TagCuratorPlugin extends Plugin {
       return;
     }
     // Count from the engine over tag metadata, not from one scope's DOM, so
-    // toggling the tag-pane scope off no longer zeroes the count.
-    const curated = this.countCurated(settings);
+    // toggling the tag-pane scope off no longer zeroes the count. Split by intent:
+    // a flag rule marks tags without hiding them, so it reads as a separate figure
+    // (shown only when nonzero, so the wording is unchanged when no flag rules
+    // exist). In preview the hide set is not hidden yet, so it reads "would be
+    // hidden", reserving "flagged" for the flag-action count.
+    const { hide, flag } = this.countByIntent(settings);
+    const flagSuffix = flag > 0 ? ` · ${flag} flagged` : '';
     if (settings.previewMode) {
-      this.statusBarEl.setText(`Tag Visibility (preview): ${curated} flagged`);
+      const h = hide === 1 ? '1 tag would be hidden' : `${hide} tags would be hidden`;
+      this.statusBarEl.setText(`Tag Visibility (preview): ${h}${flagSuffix}`);
       return;
     }
-    this.statusBarEl.setText(
-      curated === 1 ? 'Tag Visibility: 1 tag hidden' : `Tag Visibility: ${curated} tags hidden`,
-    );
+    const h = hide === 1 ? '1 tag hidden' : `${hide} tags hidden`;
+    this.statusBarEl.setText(`Tag Visibility: ${h}${flagSuffix}`);
   }
 }

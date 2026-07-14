@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuleEngine } from '../src/engine/ruleEngine';
-import { Rule, TagMeta, TagOverride } from '../src/types';
+import { Action, Rule, TagMeta, TagOverride } from '../src/types';
 
 function rule(overrides: Partial<Rule> = {}): Rule {
   return {
@@ -9,9 +9,7 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['t'] },
-    action: 'hide',
-    scopes: ['tag-pane'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 
@@ -159,11 +157,10 @@ describe('RuleEngine.getRuleAttribution', () => {
     expect(result.effective?.reason).toBe('exact match in list');
   });
 
-  it('includes action, scopes, priority, and builtin in attribution', () => {
+  it('includes action, priority, and builtin in attribution, with no scopes', () => {
     const r = rule({
       id: 'a',
       action: 'hide',
-      scopes: ['tag-pane'],
       priority: 42,
       builtin: true,
     });
@@ -171,10 +168,10 @@ describe('RuleEngine.getRuleAttribution', () => {
     expect(result.effective).toMatchObject({
       ruleId: 'a',
       action: 'hide',
-      scopes: ['tag-pane'],
       priority: 42,
       builtin: true,
     });
+    expect(result.effective).not.toHaveProperty('scopes');
   });
 
   it('treats missing builtin flag as false', () => {
@@ -195,17 +192,26 @@ describe('RuleEngine.getRuleAttribution', () => {
   });
 });
 
-describe('RuleEngine.countCurated (status-bar count, scope-independent)', () => {
-  it('counts only tags whose effective match would hide them', () => {
+describe('RuleEngine.countByIntent (hide vs flag split, scope-independent)', () => {
+  it('counts a hide-rule tag as hide, not flag, and ignores shown tags', () => {
     const rules: Rule[] = [rule({ id: 'h', match: { type: 'list', list: ['hidden'] } })];
     const map = metaMap(meta('hidden'), meta('shown'));
-    expect(RuleEngine.countCurated(map, rules, {})).toBe(1);
+    expect(RuleEngine.countByIntent(map, rules, {})).toEqual({ hide: 1, flag: 0 });
   });
 
-  it('returns 0 when no tag matches any rule and there are no overrides', () => {
+  it('separates flag-action tags from hide-action tags', () => {
+    const rules: Rule[] = [
+      rule({ id: 'h', action: 'hide', match: { type: 'list', list: ['hideme'] } }),
+      rule({ id: 'f', action: 'flag', match: { type: 'list', list: ['flagme'] } }),
+    ];
+    const map = metaMap(meta('hideme'), meta('flagme'), meta('plain'));
+    expect(RuleEngine.countByIntent(map, rules, {})).toEqual({ hide: 1, flag: 1 });
+  });
+
+  it('returns zeros when no tag matches any rule and there are no overrides', () => {
     const rules: Rule[] = [rule({ id: 'h', match: { type: 'list', list: ['nope'] } })];
     const map = metaMap(meta('a'), meta('b'), meta('c'));
-    expect(RuleEngine.countCurated(map, rules, {})).toBe(0);
+    expect(RuleEngine.countByIntent(map, rules, {})).toEqual({ hide: 0, flag: 0 });
   });
 
   it('does NOT count an always-show override even when a rule matches', () => {
@@ -213,24 +219,66 @@ describe('RuleEngine.countCurated (status-bar count, scope-independent)', () => 
     const rules: Rule[] = [rule({ id: 'h', match: { type: 'list', list: ['x'] } })];
     const overrides: Record<string, TagOverride> = { x: 'show' };
     const map = metaMap(meta('x'));
-    expect(RuleEngine.countCurated(map, rules, overrides)).toBe(0);
+    expect(RuleEngine.countByIntent(map, rules, overrides)).toEqual({ hide: 0, flag: 0 });
   });
 
-  it('counts an always-hide override even when no rule matches', () => {
+  it('counts an always-hide override as hide even when no rule matches', () => {
     const overrides: Record<string, TagOverride> = { y: 'hide' };
     const map = metaMap(meta('y'), meta('z'));
-    expect(RuleEngine.countCurated(map, [], overrides)).toBe(1);
+    expect(RuleEngine.countByIntent(map, [], overrides)).toEqual({ hide: 1, flag: 0 });
   });
 
-  it('is preview-mode-independent: the matched SET is the same regardless', () => {
-    // countCurated returns the size of the hidden/flagged set; preview mode only
-    // changes how those tags are decorated, not which tags are counted.
-    const rules: Rule[] = [rule({ id: 'h', match: { type: 'list', list: ['a', 'b'] } })];
-    const map = metaMap(meta('a'), meta('b'), meta('c'));
-    expect(RuleEngine.countCurated(map, rules, {})).toBe(2);
+  it('is preview-mode-independent: the matched SETS are intrinsic to rules', () => {
+    // The split is a property of rules + overrides; preview mode only changes how
+    // those tags are decorated, never which tags land in which bucket.
+    const rules: Rule[] = [
+      rule({ id: 'h', match: { type: 'list', list: ['a', 'b'] } }),
+      rule({ id: 'f', action: 'flag', match: { type: 'list', list: ['c'] } }),
+    ];
+    const map = metaMap(meta('a'), meta('b'), meta('c'), meta('d'));
+    expect(RuleEngine.countByIntent(map, rules, {})).toEqual({ hide: 2, flag: 1 });
   });
 
-  it('returns 0 for an empty metadata map', () => {
-    expect(RuleEngine.countCurated(new Map(), [rule()], {})).toBe(0);
+  it('returns zeros for an empty metadata map', () => {
+    expect(RuleEngine.countByIntent(new Map(), [rule()], {})).toEqual({ hide: 0, flag: 0 });
+  });
+});
+
+describe('RuleEngine.resolveDecoration (single hidden/flagged/marked decision)', () => {
+  it('returns null when nothing matches (shown)', () => {
+    expect(RuleEngine.resolveDecoration(null, false)).toBeNull();
+    expect(RuleEngine.resolveDecoration(null, true)).toBeNull();
+  });
+
+  it('returns null for an always-show override in both modes (kept visible)', () => {
+    const eff = RuleEngine.resolveVisibility('t', undefined, [], { t: 'show' }).effective;
+    expect(RuleEngine.resolveDecoration(eff, false)).toBeNull();
+    expect(RuleEngine.resolveDecoration(eff, true)).toBeNull();
+  });
+
+  it('marks a flag-action match in both modes (preview-independent)', () => {
+    const eff = RuleEngine.getRuleAttribution('t', undefined, [rule({ action: 'flag' })]).effective;
+    expect(RuleEngine.resolveDecoration(eff, false)).toBe('marked');
+    expect(RuleEngine.resolveDecoration(eff, true)).toBe('marked');
+  });
+
+  it('hides a hide-action match normally and flags it in preview', () => {
+    const eff = RuleEngine.getRuleAttribution('t', undefined, [rule({ action: 'hide' })]).effective;
+    expect(RuleEngine.resolveDecoration(eff, false)).toBe('hidden');
+    expect(RuleEngine.resolveDecoration(eff, true)).toBe('flagged');
+  });
+
+  it('degrades a deferred show-only / group action to the hide branch', () => {
+    for (const action of ['show-only', 'group'] as Action[]) {
+      const eff = RuleEngine.getRuleAttribution('t', undefined, [rule({ action })]).effective;
+      expect(RuleEngine.resolveDecoration(eff, false)).toBe('hidden');
+      expect(RuleEngine.resolveDecoration(eff, true)).toBe('flagged');
+    }
+  });
+
+  it('hides an always-hide override normally and flags it in preview', () => {
+    const eff = RuleEngine.resolveVisibility('t', undefined, [], { t: 'hide' }).effective;
+    expect(RuleEngine.resolveDecoration(eff, false)).toBe('hidden');
+    expect(RuleEngine.resolveDecoration(eff, true)).toBe('flagged');
   });
 });

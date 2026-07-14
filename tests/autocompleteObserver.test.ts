@@ -18,9 +18,7 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['draft'] },
-    action: 'hide',
-    scopes: ['autocomplete'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 
@@ -126,6 +124,161 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
+});
+
+/**
+ * Obsidian 1.12.7's core tag suggester renders suggestion text WITHOUT the
+ * leading '#' (its getSuggestions strips it with slice(1) before rendering;
+ * read from the running bundle), so the legacy '#' prefix signal no longer
+ * exists there. The observer instead recognizes the tag-typing CONTEXT from
+ * the editor: the text before the cursor ends in a '#token' that is not
+ * inside an unclosed wikilink. This fixture fakes workspace.activeEditor with
+ * a single-line document and the cursor at the end of `lineBeforeCursor`.
+ */
+function makeAppWithEditor(lineBeforeCursor: string | null): ReturnType<typeof makeApp> {
+  const app = makeApp() as ReturnType<typeof makeApp> & {
+    workspace: { activeEditor?: unknown };
+  };
+  if (lineBeforeCursor !== null) {
+    app.workspace.activeEditor = {
+      editor: {
+        getCursor: () => ({ line: 0, ch: lineBeforeCursor.length }),
+        getLine: () => lineBeforeCursor,
+      },
+    };
+  }
+  return app;
+}
+
+/**
+ * Simulates the Properties `tags` field (or another metadata property, for the
+ * negative case) holding keyboard focus (H006, signal 3): a
+ * `.metadata-property[data-property-key="..."]` row containing a focusable
+ * input, focused and attached to the document so `document.activeElement`
+ * resolves to it.
+ */
+function focusPropertiesField(propertyKey: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'metadata-property';
+  row.setAttribute('data-property-key', propertyKey);
+  const input = document.createElement('input');
+  row.appendChild(input);
+  document.body.appendChild(row);
+  input.focus();
+  return row;
+}
+
+describe('AutocompleteObserver bare-name tag suggestions (Obsidian 1.12.7+)', () => {
+  const hexRule = (): Rule =>
+    rule({ id: 'hex', match: { type: 'regex', pattern: '^[0-9A-Fa-f]{3,8}$' } });
+
+  it('suppresses a bare hex suggestion while the cursor sits in a #tag context', async () => {
+    const container = makeSuggestionContainer([
+      makeNonTagItem('C9FCD6'),
+      makeNonTagItem('review'),
+    ]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(
+      makeAppWithEditor('Mentions #C9') as never,
+      new Plugin(),
+    );
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(itemFor(container, 'review').classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
+
+  it('treats a bare "#" (empty token) as a tag context too', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(
+      makeAppWithEditor('start #') as never,
+      new Plugin(),
+    );
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('leaves bare suggestions untouched when there is no editor context (e.g. Properties field)', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
+
+  it('leaves bare suggestions untouched when the cursor is not in a #token', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(
+      makeAppWithEditor('plain prose, no tag trigger') as never,
+      new Plugin(),
+    );
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
+
+  it('leaves bare suggestions untouched inside an unclosed wikilink (heading suggestions)', async () => {
+    // Typing [[note#C9 opens the HEADING suggester; a heading named like a hex
+    // code must never be hidden.
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(
+      makeAppWithEditor('see [[note#C9') as never,
+      new Plugin(),
+    );
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
+
+  it('keeps recognizing legacy #-prefixed items regardless of editor context', async () => {
+    const container = makeSuggestionContainer([makeTagItem('#C9FCD6')]);
+    document.body.appendChild(container);
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, '#C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('suppresses a bare hex suggestion when the Properties tags field has focus, even with no body-editor context (H006)', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    focusPropertiesField('tags');
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('leaves bare suggestions untouched when a non-tags property has focus (e.g. aliases)', async () => {
+    const container = makeSuggestionContainer([makeNonTagItem('C9FCD6')]);
+    document.body.appendChild(container);
+    focusPropertiesField('aliases');
+    const obs = new AutocompleteObserver(makeAppWithEditor(null) as never, new Plugin());
+    obs.setRules([hexRule()]);
+    obs.init();
+    await flushRaf();
+
+    expect(itemFor(container, 'C9FCD6').classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
 });
 
 describe('AutocompleteObserver basic suppression', () => {

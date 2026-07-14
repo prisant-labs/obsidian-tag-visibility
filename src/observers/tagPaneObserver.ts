@@ -3,11 +3,43 @@ import { DecorationMode, ObservedRow, ObserverBase } from './observerBase';
 
 const HIDDEN_CLASS = 'tag-curator-hidden';
 const FLAG_CLASS = 'tag-curator-flagged';
+const MARK_CLASS = 'tag-curator-marked';
 const TAG_ATTR = 'data-tag-curator-rule';
 const TAG_VIEW_TYPE = 'tag';
 
 interface Filterable extends View {
   containerEl: HTMLElement;
+}
+
+/* -----------------------------------------------------------------
+ * Obsidian tag-pane internals (undocumented; shapes verified live on
+ * Obsidian 1.12.7). The coherence sweep below is the ONLY code that touches
+ * them. Every access is feature-detected and wrapped, so if a future Obsidian
+ * renames anything the sweep silently stops and the pane simply behaves as it
+ * did before the sweep existed (rows hide, space reclaims on the pane's next
+ * natural rebuild instead of immediately).
+ * ----------------------------------------------------------------- */
+
+interface TagPaneItemInfo {
+  hidden: boolean;
+  height: number;
+}
+
+interface TagPaneItem {
+  selfEl?: HTMLElement;
+  parent?: unknown;
+  info?: TagPaneItemInfo;
+}
+
+interface TagPaneInfinityScroll {
+  rootEl?: unknown;
+  measure?: (parent: unknown, item: TagPaneItem) => void;
+  updateVirtualDisplay?: () => void;
+}
+
+interface TagPaneViewInternals {
+  tagDoms?: Record<string, TagPaneItem>;
+  tree?: { infinityScroll?: TagPaneInfinityScroll };
 }
 
 /**
@@ -17,6 +49,10 @@ interface Filterable extends View {
  * row hidden or flagged.
  */
 export class TagPaneObserver extends ObserverBase {
+  // containerEl -> its Tags view, captured at attach time so the coherence
+  // sweep can reach that pane's virtualizer internals.
+  private views = new WeakMap<HTMLElement, Filterable & TagPaneViewInternals>();
+
   init(): void {
     this.app.workspace.onLayoutReady(() => this.attachAll());
     this.plugin.registerEvent(
@@ -36,10 +72,97 @@ export class TagPaneObserver extends ObserverBase {
       loadIfDeferred?: () => void;
     };
     if (maybeDeferred.isDeferred) maybeDeferred.loadIfDeferred?.();
-    const view = leaf.view as Filterable;
+    const view = leaf.view as Filterable & TagPaneViewInternals;
     const containerEl = view?.containerEl;
     if (!containerEl) return;
+    this.views.set(containerEl, view);
     this.observeContainer(containerEl);
+  }
+
+  setEnabled(enabled: boolean): void {
+    super.setEnabled(enabled);
+    // Disabling strips decorations synchronously (kill switch / panic path);
+    // re-measure the un-hidden rows right away so the pane's height model is
+    // left coherent instead of waiting for a mutation-driven pass.
+    if (!enabled) {
+      for (const container of this.containers) this.sweepModel(container);
+    }
+  }
+
+  unload(): void {
+    this.clearAll();
+    for (const container of this.containers) this.sweepModel(container);
+    super.unload();
+  }
+
+  protected afterApply(root: HTMLElement): void {
+    this.sweepModel(root);
+  }
+
+  /**
+   * Model-DOM coherence sweep: reclaims (and returns) the space of rows this
+   * observer hides, by keeping the tag pane's virtualizer height model in
+   * agreement with the DOM.
+   *
+   * Why it exists: the pane's virtualizer lays rows out as
+   * `info.hidden ? 0 : info.height || averageHeight`. A row we collapse via
+   * CSS measures to height 0 but keeps `hidden=false` in the host's cache, so
+   * the falsy 0 falls back to the AVERAGE row height - the row is invisible
+   * yet its space stays reserved (a permanent gap), and the host's own
+   * recompute passes can re-corrupt entries that were previously correct. The
+   * repair is to run the host's OWN `measure()` on any row whose display
+   * state disagrees with its cached `info.hidden` - in either direction, so
+   * un-hiding restores height too - then refresh the virtual display once.
+   *
+   * Convergence: coherent rows are skipped (idempotent), and the host's
+   * compute skips already-measured items, so repair passes reach a fixed
+   * point instead of ping-ponging with the host. When the host DOES re-corrupt
+   * (its recompute churns the DOM), the MutationObserver schedules another
+   * apply pass and the sweep repairs again - self-healing by construction.
+   */
+  private sweepModel(root: HTMLElement): void {
+    try {
+      const view = this.views.get(root);
+      const inf = view?.tree?.infinityScroll;
+      const tagDoms = view?.tagDoms;
+      if (!inf || !tagDoms) return;
+      if (
+        typeof inf.measure !== 'function' ||
+        typeof inf.updateVirtualDisplay !== 'function'
+      ) {
+        return;
+      }
+
+      // Match rows to items by selfEl identity rather than tag text: it is
+      // immune to key-format details (tagDoms keys carry a leading '#') and to
+      // the parent-prefix span in nested-tag rows.
+      const itemsBySelfEl = new Map<HTMLElement, TagPaneItem>();
+      for (const key of Object.keys(tagDoms)) {
+        const item = tagDoms[key];
+        if (item?.selfEl) itemsBySelfEl.set(item.selfEl, item);
+      }
+
+      let repaired = 0;
+      const rows = root.querySelectorAll<HTMLElement>('.tag-pane-tag');
+      for (const row of Array.from(rows)) {
+        const item = itemsBySelfEl.get(row);
+        const info = item?.info;
+        if (!item || !info) continue;
+        const rowHidden = row.classList.contains(HIDDEN_CLASS);
+        if (info.hidden === rowHidden) continue;
+        try {
+          inf.measure(item.parent ?? inf.rootEl, item);
+          repaired++;
+        } catch {
+          // This row's repair failed; the pane settles it on its next natural
+          // rebuild instead.
+        }
+      }
+      if (repaired > 0) inf.updateVirtualDisplay();
+    } catch {
+      // Internals drifted (future Obsidian build): never let the sweep break
+      // decoration. The pane behaves exactly as it did before the sweep.
+    }
   }
 
   countHidden(): number {
@@ -84,29 +207,23 @@ export class TagPaneObserver extends ObserverBase {
     ruleId: string,
     mode: DecorationMode,
   ): void {
-    if (mode === 'hidden') {
-      el.classList.add(HIDDEN_CLASS);
-      el.classList.remove(FLAG_CLASS);
-      el.setAttribute('aria-hidden', 'true');
-      el.setAttribute(TAG_ATTR, ruleId);
-    } else {
-      el.classList.add(FLAG_CLASS);
-      el.classList.remove(HIDDEN_CLASS);
-      el.removeAttribute('aria-hidden');
-      el.setAttribute(TAG_ATTR, ruleId);
-    }
+    el.classList.toggle(HIDDEN_CLASS, mode === 'hidden');
+    el.classList.toggle(FLAG_CLASS, mode === 'flagged');
+    el.classList.toggle(MARK_CLASS, mode === 'marked');
+    if (mode === 'hidden') el.setAttribute('aria-hidden', 'true');
+    else el.removeAttribute('aria-hidden');
+    el.setAttribute(TAG_ATTR, ruleId);
   }
 
   protected clearDecoration(el: HTMLElement): void {
-    el.classList.remove(HIDDEN_CLASS);
-    el.classList.remove(FLAG_CLASS);
+    el.classList.remove(HIDDEN_CLASS, FLAG_CLASS, MARK_CLASS);
     el.removeAttribute('aria-hidden');
     el.removeAttribute(TAG_ATTR);
   }
 
   protected findDecorated(root: HTMLElement): HTMLElement[] {
     return Array.from(
-      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}`),
+      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}, .${MARK_CLASS}`),
     );
   }
 }

@@ -26,6 +26,12 @@
    * class-toggle swaps this to 700 by adding the tag-curator-flag-bold body
    * class; the default leaves flagged names at their normal weight. */
   --tag-curator-flag-weight: inherit;
+  /* Marked tag highlight color (the flag action: a persistent accent shown in
+   * both normal and preview mode). A distinct hue from the amber flag color, so
+   * a flag-rule mark never reads as a would-be-hidden preview. */
+  --tag-curator-mark-color: var(--text-accent);
+  /* Background wash behind a marked row / pill / suggestion. */
+  --tag-curator-mark-bg: var(--background-modifier-hover);
 }
 
 /* The tag-curator-flag-bold body class is added by Style Settings' class-toggle
@@ -56,6 +62,18 @@ settings:
     description: Render flagged tag names in bold for extra emphasis in preview mode.
     type: class-toggle
     default: false
+  - id: tag-curator-mark-color
+    title: Marked tag color
+    description: Color for tags a flag rule marks (shown in both normal and preview mode).
+    type: variable-color
+    format: hex
+    default: '#7f6df2'
+  - id: tag-curator-mark-bg
+    title: Marked tag background
+    description: Background wash behind a marked row, pill, or suggestion.
+    type: variable-color
+    format: hex
+    default: '#3a3a3a'
 
 */
 
@@ -127,6 +145,32 @@ settings:
 }
 .tag-curator-state-banner .sb-action:hover {
   background: var(--background-modifier-hover);
+}
+/* Read-only mode: future-schema (B-03). Amber to match the severity of
+ * "something needs attention" without implying an error on the user's part. */
+.tag-curator-state-banner[data-variant="future-schema"] {
+  background: rgba(245, 201, 124, 0.12);
+  border-left-color: var(--text-warning);
+}
+.tag-curator-state-banner[data-variant="future-schema"] .sb-ic {
+  background: var(--text-warning);
+  color: var(--background-primary);
+}
+.tag-curator-state-banner[data-variant="future-schema"] .sb-msg {
+  color: var(--text-muted);
+}
+/* Read-only mode: unreadable data.json (B-01). Red accent to convey that
+ * the existing file is at risk if the user is not aware of the state. */
+.tag-curator-state-banner[data-variant="unreadable"] {
+  background: rgba(220, 80, 50, 0.1);
+  border-left-color: var(--text-error);
+}
+.tag-curator-state-banner[data-variant="unreadable"] .sb-ic {
+  background: var(--text-error);
+  color: var(--background-primary);
+}
+.tag-curator-state-banner[data-variant="unreadable"] .sb-msg {
+  color: var(--text-muted);
 }
 
 /* =========================================================
@@ -601,29 +645,13 @@ settings:
   outline: none;
   border-bottom-color: var(--interactive-accent);
 }
-.tcr-type-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.tcr-type-card {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 9px 11px;
-  cursor: pointer;
-}
-.tcr-type-card.on {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
-}
-.tcr-type-card-title {
-  font-weight: 600;
-  font-size: 12.5px;
-}
-.tcr-type-card-desc {
-  font-size: 11px;
+/* Type selector (2b): a single dropdown + one-line byline replaced the three
+   cards, which crowded the section and pushed the Match row down. The byline
+   shows the selected match type's help text. */
+.tcr-type-byline {
+  margin-top: 6px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  margin-top: 3px;
   line-height: 1.4;
 }
 .tcst-more-link:hover {
@@ -905,6 +933,22 @@ settings:
   color: var(--text-normal);
   font: inherit;
   font-size: 13px;
+  /* 2a: give descenders room so an option like "flag" is not clipped at the
+     baseline (the tight action select showed the 'g' cut off). */
+  line-height: 1.4;
+}
+/* UI-001: 2a's line-height alone did not fix the clipping (confirmed live -
+   both the closed control and the option text still crop). A native <select>
+   in Chromium/Electron renders its closed-box text using its own internal
+   combo-box layout when no `height` is set explicitly, which can silently
+   compress below what padding + line-height alone would produce - the box
+   ends up shorter than the text needs, cropping the top or the descender.
+   Forcing `height: auto` (with `box-sizing: content-box` so the padding
+   above is additive, not squeezed into a fixed box) makes the box a normal
+   content-sized element instead, so line-height finally has room to apply. */
+select.tcr-select {
+  height: auto;
+  box-sizing: content-box;
 }
 .tcr-select.tight,
 .tcr-input.tight {
@@ -1600,6 +1644,19 @@ settings:
   width: 15px;
   height: 15px;
 }
+/* 1a: keep the eye icon centered over the dot column below it. The sort arrow is
+   taken out of flow so its width (and margin) does not push the centered eye to
+   the left of the dot. */
+.tct-head-row .tct-cell-visible {
+  position: relative;
+}
+.tct-head-row .tct-cell-visible .tct-sort-arrow {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
+}
 
 /* Scroll viewport + spacer for virtualization. */
 .tct-scroll {
@@ -1643,7 +1700,14 @@ settings:
   color: var(--tag-curator-flag-color);
   font-weight: var(--tag-curator-flag-weight);
 }
+.tct-row-marked .tct-tagname {
+  color: var(--tag-curator-mark-color);
+}
 .tct-src {
+  /* 5a: inline-block so the chip's padding + border count in its box and are not
+     clipped by the cell's overflow:hidden (the bottom border was being cut). */
+  display: inline-block;
+  line-height: 1.4;
   font-size: 10.5px;
   color: var(--text-faint);
   border: 1px solid var(--divider-color);
@@ -1670,9 +1734,9 @@ settings:
   font-size: 12px;
 }
 
-/* Visibility dot: shown = green, hidden = medium gray, flagged = amber (items
- * 5 + 11). Gray (not blue) reads as "suppressed" and keeps the three states
- * visually distinct. */
+/* Visibility dot: shown = green, hidden = medium gray, flagged = amber, marked =
+ * accent (items 5 + 11). Gray (not blue) reads as "suppressed" and keeps the
+ * states visually distinct. */
 .tct-vis-dot {
   display: inline-block;
   width: 9px;
@@ -1688,6 +1752,9 @@ settings:
 }
 .tct-vis-flagged {
   background: var(--tag-curator-flag-color);
+}
+.tct-vis-marked {
+  background: var(--tag-curator-mark-color);
 }
 
 /* Renders a literal vertical-ellipsis glyph (item 7), so font-size sizes it. */
@@ -1869,9 +1936,18 @@ settings:
  * outside; no NN source is referenced.
  * ----------------------------------------------------------------- */
 
-/* Hide: collapse the row to zero height inside NN's virtualizer. */
+/* Hide (dim-in-place): NN's virtualizer positions rows at committed offsets
+ * inside a fixed-height container, so a display:none row leaves a permanent
+ * blank slot - at scale, whole dead bands. Hidden rows are therefore dimmed
+ * and struck through instead: visible, clickable, clearly suppressed, and the
+ * tree stays fully packed. The strikethrough targets the name span only so
+ * the count badge stays legible. */
 .nn-tag.tc-nn-hidden {
-  display: none !important;
+  opacity: 0.45;
+}
+.nn-tag.tc-nn-hidden .nn-navitem-name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 /* Flag (preview mode): a plugin-owned highlight so the user can see
@@ -1884,6 +1960,17 @@ settings:
 .nn-tag.tc-nn-flagged .nn-navitem-name {
   color: var(--tag-curator-flag-color);
   font-weight: var(--tag-curator-flag-weight);
+}
+
+/* Mark (flag action): a persistent accent so the user sees which NN rows a flag
+ * rule marks, in both normal and preview mode (never hidden). */
+.nn-tag.tc-nn-marked {
+  background: var(--tag-curator-mark-bg);
+  box-shadow: inset 2px 0 0 0 var(--tag-curator-mark-color);
+  border-radius: 4px;
+}
+.nn-tag.tc-nn-marked .nn-navitem-name {
+  color: var(--tag-curator-mark-color);
 }
 
 /* -----------------------------------------------------------------
@@ -1912,6 +1999,17 @@ settings:
 .multi-select-pill.tc-prop-flagged .multi-select-pill-content {
   color: var(--tag-curator-flag-color);
   font-weight: var(--tag-curator-flag-weight);
+}
+
+/* Mark (flag action): a persistent accent so the user sees which tag pills a
+ * flag rule marks, in both normal and preview mode (never hidden). */
+.multi-select-pill.tc-prop-marked {
+  background: var(--tag-curator-mark-bg);
+  box-shadow: inset 2px 0 0 0 var(--tag-curator-mark-color);
+  border-radius: 4px;
+}
+.multi-select-pill.tc-prop-marked .multi-select-pill-content {
+  color: var(--tag-curator-mark-color);
 }
 
 /* -----------------------------------------------------------------
@@ -1946,6 +2044,17 @@ settings:
   font-weight: var(--tag-curator-flag-weight);
 }
 
+/* Mark (flag action): a persistent accent so the user sees which tag suggestions
+ * a flag rule marks, in both normal and preview mode (never hidden). */
+.suggestion-item.tc-ac-marked {
+  background: var(--tag-curator-mark-bg);
+  box-shadow: inset 2px 0 0 0 var(--tag-curator-mark-color);
+  border-radius: 4px;
+}
+.suggestion-item.tc-ac-marked .suggestion-content {
+  color: var(--tag-curator-mark-color);
+}
+
 /* -----------------------------------------------------------------
  * Core tag pane decoration (the original, primary scope).
  * plugin-owned classes only (tag-curator-*); Obsidian's
@@ -1971,6 +2080,17 @@ settings:
   font-weight: var(--tag-curator-flag-weight);
 }
 
+/* Mark (flag action): a persistent accent so the user sees which rows a flag
+ * rule marks, in both normal and preview mode (never hidden). */
+.tag-pane-tag.tag-curator-marked {
+  background: var(--tag-curator-mark-bg);
+  box-shadow: inset 2px 0 0 0 var(--tag-curator-mark-color);
+  border-radius: 4px;
+}
+.tag-pane-tag.tag-curator-marked .tag-pane-tag-text {
+  color: var(--tag-curator-mark-color);
+}
+
 /* Help tab: compact command table */
 .tcst-cmd-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 14px; }
 .tcst-cmd-table td { padding: 4px 8px; border-bottom: 1px solid var(--background-modifier-border); vertical-align: top; }
@@ -1980,3 +2100,7 @@ settings:
 /* Reviewed-state row marker in the tag name cell */
 .tct-reviewed-mark { margin-left: 6px; color: var(--text-success); opacity: 0.7; }
 .tct-reviewed-mark svg { width: 13px; height: 13px; }
+/* #3: flag glyph on marked (flag-rule) rows - the name recolor alone was too
+   subtle. Uses the shared mark color so the icon and name read as one signal. */
+.tct-flag-mark { margin-left: 6px; color: var(--tag-curator-mark-color); display: inline-flex; vertical-align: middle; }
+.tct-flag-mark svg { width: 13px; height: 13px; }

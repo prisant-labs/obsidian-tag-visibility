@@ -23,6 +23,7 @@
 
 <p>
   <a href="https://github.com/prisant-labs/obsidian-tag-visibility/releases"><img src="https://img.shields.io/github/v/release/prisant-labs/obsidian-tag-visibility?include_prereleases&sort=semver&style=flat-square&label=release&color=orange" alt="Latest release"></a>
+  <a href="https://github.com/prisant-labs/obsidian-tag-visibility/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/prisant-labs/obsidian-tag-visibility/build.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License: Apache 2.0"></a>
   <img src="https://img.shields.io/badge/Obsidian-1.9.10%2B-7c3aed?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian 1.9.10+">
   <a href="#contributing"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs welcome"></a>
@@ -92,15 +93,15 @@ Tag Visibility gives you a rule engine that controls which tags appear across Ob
 
 > **How does it work?** [How Tag Visibility Works](docs/HOW-IT-WORKS.md) is a plain-language explainer with an FAQ, written for both everyday users and engineers.
 
-The heart of v1.0 is the **Tag Visibility panel**: a real, dockable workspace leaf (not a settings screen) where you see every change land live. Open it beside the native tag pane and your loop becomes a single continuous glance: edit a rule on one side, watch tags hide or flag on the other, in the same breath.
+The heart of v1.0 is the **Tag Visibility panel**: a real, dockable workspace leaf (not a settings screen) that shows every tag and its live visibility state. Open it beside the native tag pane and your whole tag inventory sits a glance away from Obsidian's own list, updating the moment a rule or override changes. Rules are authored in **Settings > Custom rules**, which carries its own live preview.
 
 <!-- IMAGE PENDING (capture): docs/assets/hero-pane-beside-tagpane.gif - the Tag Visibility panel docked beside the native tag pane, mid-edit -->
 
 ### Key features
 
 - **Display-only and reversible.** Tags are hidden or flagged in the UI only; note content is never modified, and turning the plugin off restores everything instantly.
-- **The Tag Visibility panel.** A dockable leaf with a virtualized tag table, an inline rule editor, live preview, bulk actions, and per-row "why is this hidden?" diagnostics.
-- **Side-by-side loop.** One command docks the panel beside the native tag pane, so a rule edit and its effect are a single glance apart.
+- **The Tag Visibility panel.** A dockable leaf with a virtualized tag table, filter chips, View/Manage modes, bulk actions, per-tag overrides, and per-row "why is this affected?" diagnostics.
+- **Side-by-side view.** One command docks the panel beside the native tag pane, so your full tag inventory and Obsidian's own list sit a single glance apart.
 - **Four scopes, independently switchable.** Tag pane, Notebook Navigator, Properties, and Autocomplete, each with its own kill switch.
 - **Per-tag overrides.** Pin any single tag to always-show (the safety net) or always-hide, ahead of every rule.
 - **Five presets plus custom rules.** Regex, frequency, or list rules, with a live preview as you type.
@@ -129,7 +130,7 @@ BRAT offers updates automatically whenever a new beta is published.
 **Manual:**
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/prisant-labs/obsidian-tag-visibility/releases).
-2. Copy them to `<your-vault>/.obsidian/plugins/tag-curator/`.
+2. Copy them to `<your-vault>/.obsidian/plugins/tag-visibility/`.
 3. Reload Obsidian and enable Tag Visibility under Community Plugins.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -140,39 +141,41 @@ BRAT offers updates automatically whenever a new beta is published.
 
 1. Enable Tag Visibility. The welcome modal opens once: it states the file-safe contract, then offers **Start hiding tags** (apply rules normally) or **Start in preview mode** (flag matched tags instead of hiding them).
 2. Run **Tag Visibility: Open beside the tag pane** from the command palette (Cmd/Ctrl+P). The Tag Visibility panel and the native tag pane sit side by side.
-3. Click `+ New rule`, give it a name, pick a Type (Pattern match / Count threshold / Specific tags), and watch the live preview and the real tag pane react as you type.
+3. Open **Settings > Custom rules**, click `+ New rule`, give it a name, and pick a Type (Pattern match / Count threshold / Specific tags). The editor's live preview lists the affected tags as you type; the panel and tag pane update when you save.
 4. If a rule catches one tag too many, find its row and pin it to **always-show**. It pops back and is safe from every rule.
 5. The status bar shows the current state. Click it to open the panel filtered to hidden tags.
 6. If anything looks wrong: **Settings > General > Run panic disable**, or run **Tag Visibility: Panic disable** from the command palette. Every effect across every scope is removed instantly; nothing in your notes changes.
 
 ### The Tag Visibility panel
 
-The Tag Visibility panel is where the work happens. It holds:
+The Tag Visibility panel is where you browse and triage tags. It holds:
 
-- **The tag table.** Every tag in your vault with its count, first and last seen, source (frontmatter or inline), per-scope visibility, and the rule (if any) affecting it. Sortable, searchable, virtualized for large vaults.
-- **Filter chips.** One-click filters: Hidden, Flagged, Orphans, Frontmatter, Inline, Unreviewed, By rule.
-- **The inline rule editor.** Rules show as cards; click a card to edit in place, or `+ New rule` to create one. The editor never leaves the panel, so you never lose sight of your tags.
-- **Live preview.** As you type a rule, the affected-tags list updates immediately, and so does the real tag pane beside it.
-- **Bulk actions.** Select several tags, then hide, unhide, flag, add a description, or send them to Tag Wrangler in one action.
-- **Per-row diagnostics.** On any row, ask "why is this hidden?" and Tag Visibility names the exact preset, rule, or override responsible. A tag is never hidden without a traceable reason.
+- **The tag table.** Every tag in your vault with its count, when it was last indexed, source (frontmatter or inline), a visibility indicator, and the rule (if any) affecting it. Sortable, searchable, virtualized for large vaults.
+- **Filter chips.** One-click filters: All, Visible, Hidden, Orphans, Flagged, Frontmatter, Inline, Unreviewed. (A by-rule filter is additionally available in the Settings > All tags grid.)
+- **View and Manage modes.** View browses tags (tap a tag to search for it); Manage is the full grid with selection, bulk actions, and overrides.
+- **Bulk actions.** Select several tags, then hide, unhide, mark reviewed, or send them to Tag Wrangler in one action.
+- **Per-tag overrides.** Pin any row to always-show (the safety net) or always-hide, ahead of every rule.
+- **Per-row diagnostics.** On any row, ask "why is this affected?" and Tag Visibility names the exact preset, rule, or override responsible. A tag is never hidden without a traceable reason.
+
+Rules themselves are authored in **Settings > Custom rules**, reachable from the panel's header gear; the editor shows a live preview of affected tags as you type.
 
 Two commands open it:
 
 - **Tag Visibility: Open the panel** opens it on its own.
 - **Tag Visibility: Open beside the tag pane** opens the panel and the native tag pane side by side, arranged for you in one move. This is the side-by-side loop that is the whole point of v1.0.
 
-You can also open it from the status bar, or from Settings.
+You can also open it from the ribbon icon or the status bar.
 
 ### Scopes
 
 A scope is a place in Obsidian where tags appear and where Tag Visibility can act. v1.0 covers the four surfaces where tags actually render:
 
 - **Tag pane** - Obsidian's native tag list.
-- **Notebook Navigator** - the tag tree in the Notebook Navigator plugin, when present. Runtime interop only; a silent no-op when Notebook Navigator is absent.
+- **Notebook Navigator** - the tag tree in the Notebook Navigator plugin, when present. Hidden tags are dimmed and struck through there (its virtualized list reserves each row's space, so removing rows would leave permanent gaps). Runtime interop only; a silent no-op when Notebook Navigator is absent.
 - **Properties** - frontmatter tags rendered in the Properties panel.
 - **Autocomplete** - the tag suggestions you get while typing, so you are not offered a tag you just hid.
 
-By default, hiding a tag hides it consistently across all four places. Each scope is **independent and reversible on its own**: go to **Settings, then Scopes**, and toggle any scope off with its per-scope kill switch. If a single surface ever misbehaves, switch off just that scope; the others keep working and the plugin stays on.
+By default, hiding a tag hides it consistently across all four places. Each scope is **independent and reversible on its own**: go to **Settings > Scopes & integrations**, and toggle any scope off with its per-scope kill switch. If a single surface ever misbehaves, switch off just that scope; the others keep working and the plugin stays on.
 
 <!-- IMAGE PENDING (capture): docs/assets/settings-scopes.png - Settings > Scopes with the four scope toggles -->
 
@@ -232,17 +235,16 @@ Obsidian lists these under the **Tag Visibility** prefix in the command palette:
 
 Settings is set-once config, not a workbench. The work happens in the Tag Visibility panel. Settings holds:
 
-- **General**: the safety row (panic disable), master enable, preview mode, and a button to open the panel.
-- **Scopes**: a per-scope kill switch for each of the four scopes.
-- **Presets** and **Custom rules**: manage the rule set.
-- **Integrations**: Tag Wrangler, Style Settings, and Notebook Navigator status.
-- **Advanced**: index maintenance, sidecar debounce, debug logging.
-
-Profiles and Aliases tabs are present as placeholders for later releases (v1.1 and v1.2).
+- **General**: master enable, preview mode, the panel toggle (on by default; turn it off to remove the ribbon icon and pane), and the safety row (panic disable).
+- **All tags**: the full Manage grid, available directly in Settings without opening the panel.
+- **Scopes & integrations**: a per-scope kill switch for each of the four scopes, plus Tag Wrangler, Style Settings, and Notebook Navigator status.
+- **Presets** and **Custom rules**: manage the rule set (the rule editor with its live preview lives here).
+- **Advanced**: index maintenance and sidecar debounce.
+- **Help**: the command reference and quick guidance.
 
 ### Files and storage
 
-What lives in `.obsidian/plugins/tag-curator/`:
+What lives in `.obsidian/plugins/tag-visibility/`:
 
 - `data.json`: settings, presets, custom rules, and per-tag overrides.
 - `tags.json`: per-tag metadata (count, first seen, last seen, source).
@@ -270,6 +272,8 @@ If the plugin behaves unexpectedly, run **Tag Visibility: Panic disable** from t
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Compatibility
+
+Tag Visibility works on Obsidian Mobile (iOS and Android): all four display scopes behave as on desktop. The status bar item is desktop-only because Obsidian does not render a status bar on mobile.
 
 Tag Visibility is display-only and file-safe, so it plays well with the rest of your tag ecosystem.
 

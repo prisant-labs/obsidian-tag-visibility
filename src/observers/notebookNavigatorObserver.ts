@@ -5,6 +5,7 @@ import { DecorationMode, ObservedRow, ObserverBase } from './observerBase';
 // and are the only classes/attrs this observer adds or removes.
 const HIDDEN_CLASS = 'tc-nn-hidden';
 const FLAG_CLASS = 'tc-nn-flagged';
+const MARK_CLASS = 'tc-nn-marked';
 const RULE_ATTR = 'data-tc-nn-rule';
 
 // Notebook Navigator's leaf view type. Used for getLeavesOfType; if NN ever
@@ -48,11 +49,36 @@ interface NnLeaf {
  * the scroller re-runs the idempotent decorate pass to re-assert state.
  */
 export class NotebookNavigatorObserver extends ObserverBase {
+  // NN writes `data-tag` as a lowercase canonical path, but the engine and the
+  // metadata map are CASE-SENSITIVE (tags keep the vault's original casing).
+  // Without reconciliation a mixed-case tag like `MyProject` decorates in every
+  // surface EXCEPT NN, whose row carries `data-tag="myproject"`: the metadata
+  // lookup misses (map key is `MyProject`) and a rule written `MyProject` never
+  // matches `myproject` (DA-14). This index maps each metadata key's lowercase
+  // form back to its canonical casing; findRows resolves every NN row through it
+  // so the shared apply loop sees the same string the tag pane does. Rebuilt in
+  // setMetadata (below) so it costs O(tags) per metadata change, not per row.
+  private lowerToCanonical = new Map<string, string>();
+
   init(): void {
     this.app.workspace.onLayoutReady(() => this.attachAll());
     this.plugin.registerEvent(
       this.app.workspace.on('layout-change', () => this.attachAll()),
     );
+  }
+
+  /**
+   * Rebuild the lowercase -> canonical-case index alongside the base metadata
+   * store (DA-14). If two genuinely distinct tags collide on lowercase (e.g.
+   * both `MyProject` and `myproject` exist as separate case-sensitive metadata
+   * entries), last write wins - NN merges them into one lowercase row anyway,
+   * so it cannot distinguish them and either canonical resolution is defensible.
+   */
+  setMetadata(metadata: Map<string, TagMeta>): void {
+    super.setMetadata(metadata);
+    const index = new Map<string, string>();
+    for (const key of metadata.keys()) index.set(key.toLowerCase(), key);
+    this.lowerToCanonical = index;
   }
 
   attachAll(): void {
@@ -88,13 +114,48 @@ export class NotebookNavigatorObserver extends ObserverBase {
     this.observeContainer(scroller);
   }
 
+  /**
+   * NN is React-rendered: clicking or selecting a row makes React rewrite the
+   * row's className from its own vDOM, wiping the tc-nn-* classes IN PLACE -
+   * an attribute mutation that childList/characterData watching never sees,
+   * so the wiped row stayed undecorated until some unrelated DOM churn.
+   * Watch class attribute mutations too, so a wipe triggers a re-apply pass.
+   * Loop-safe: the filter surfaces only class changes, and classList.toggle
+   * emits no mutation record when the class is already in the desired state,
+   * so a re-decoration pass over an already-correct tree is mutation-silent.
+   */
+  protected observerInit(): MutationObserverInit {
+    return {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    };
+  }
+
   protected findRows(root: HTMLElement): ObservedRow[] {
     const rows = root.querySelectorAll<HTMLElement>(NN_TAG_ROW_SELECTOR);
-    return Array.from(rows).map((row) => ({
-      el: row,
-      // data-tag is already the canonical lowercase path; no leading '#'.
-      tag: row.getAttribute('data-tag') ?? '',
-    }));
+    return Array.from(rows).map((row) => {
+      // data-tag is NN's canonical LOWERCASE path (no leading '#'). Resolve it
+      // back to the vault's actual casing so the case-sensitive metadata lookup
+      // and rule matching in the shared apply loop behave exactly as they do in
+      // the tag pane (DA-14). Fall back to the raw value when the tag is not in
+      // metadata (e.g. no scan yet), which keeps all-lowercase vaults unchanged.
+      const dataTag = row.getAttribute('data-tag') ?? '';
+      return { el: row, tag: this.toCanonical(dataTag) };
+    });
+  }
+
+  /**
+   * Resolve any-case tag path to its canonical metadata casing (DA-14). Keys in
+   * the index are lowercase, so the input is lowercased first: this makes the
+   * helper correct for NN's already-lowercase data-tag AND for a mixed-case
+   * ancestor prefix derived from splitting a canonical path. Unknown tags return
+   * unchanged.
+   */
+  private toCanonical(tag: string): string {
+    return this.lowerToCanonical.get(tag.toLowerCase()) ?? tag;
   }
 
   /**
@@ -116,7 +177,12 @@ export class NotebookNavigatorObserver extends ObserverBase {
     // counts). Intentionally NOT memoized to keep the observer simple; a
     // per-apply-pass cache is the right future optimization if depth or rule
     // counts grow materially (YAGNI).
-    for (const ancestor of ancestorPrefixes(tag)) {
+    for (const rawAncestor of ancestorPrefixes(tag)) {
+      // The prefix is derived by splitting the (already canonical) full tag, but
+      // a standalone ancestor may be stored under different casing; resolve it
+      // through the same index so its metadata + rule matching are case-correct
+      // (DA-14).
+      const ancestor = this.toCanonical(rawAncestor);
       const ancestorMeta = this.metadata.get(ancestor);
       const resolved = super.resolveRow(ancestor, ancestorMeta);
       const { effective } = resolved;
@@ -131,34 +197,55 @@ export class NotebookNavigatorObserver extends ObserverBase {
     return own;
   }
 
+  /**
+   * IDEMPOTENT WRITES ONLY. Because this observer watches attribute mutations
+   * (observerInit above), every write in the decorate path must be a true
+   * no-op when the DOM is already in the desired state - a write that fires a
+   * mutation record on an unchanged value (setAttribute does, per spec) would
+   * re-trigger the observer forever. Guarding on the current value makes a
+   * re-decoration pass over an already-correct tree mutation-silent under any
+   * MutationObserver implementation.
+   */
+  private setClass(el: HTMLElement, cls: string, on: boolean): void {
+    if (el.classList.contains(cls) !== on) el.classList.toggle(cls, on);
+  }
+
+  private setAttr(el: HTMLElement, name: string, value: string): void {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  private removeAttr(el: HTMLElement, name: string): void {
+    if (el.hasAttribute(name)) el.removeAttribute(name);
+  }
+
   protected applyDecoration(
     el: HTMLElement,
     ruleId: string,
     mode: DecorationMode,
   ): void {
-    if (mode === 'hidden') {
-      el.classList.add(HIDDEN_CLASS);
-      el.classList.remove(FLAG_CLASS);
-      el.setAttribute('aria-hidden', 'true');
-      el.setAttribute(RULE_ATTR, ruleId);
-    } else {
-      el.classList.add(FLAG_CLASS);
-      el.classList.remove(HIDDEN_CLASS);
-      el.removeAttribute('aria-hidden');
-      el.setAttribute(RULE_ATTR, ruleId);
-    }
+    this.setClass(el, HIDDEN_CLASS, mode === 'hidden');
+    this.setClass(el, FLAG_CLASS, mode === 'flagged');
+    this.setClass(el, MARK_CLASS, mode === 'marked');
+    // Hidden NN rows are dimmed + struck through, not display:none (NN's
+    // committed-offset virtualizer would keep the empty slot anyway), so they
+    // remain visible interactive content and must never be aria-hidden. The
+    // removal also cleans the attribute off rows decorated by older builds
+    // that hid via display:none.
+    this.removeAttr(el, 'aria-hidden');
+    this.setAttr(el, RULE_ATTR, ruleId);
   }
 
   protected clearDecoration(el: HTMLElement): void {
-    el.classList.remove(HIDDEN_CLASS);
-    el.classList.remove(FLAG_CLASS);
-    el.removeAttribute('aria-hidden');
-    el.removeAttribute(RULE_ATTR);
+    this.setClass(el, HIDDEN_CLASS, false);
+    this.setClass(el, FLAG_CLASS, false);
+    this.setClass(el, MARK_CLASS, false);
+    this.removeAttr(el, 'aria-hidden');
+    this.removeAttr(el, RULE_ATTR);
   }
 
   protected findDecorated(root: HTMLElement): HTMLElement[] {
     return Array.from(
-      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}`),
+      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}, .${MARK_CLASS}`),
     );
   }
 }

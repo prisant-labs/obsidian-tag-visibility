@@ -81,14 +81,25 @@ export interface EventRef {
 
 export class Plugin {
   data: unknown = null;
-  manifest: { id: string; dir?: string } = { id: 'tag-curator' };
+  manifest: { id: string; dir?: string } = { id: 'tag-visibility' };
   registeredEvents: EventRef[] = [];
   registeredCleanups: Array<() => void> = [];
+  /** Counts how many times saveData has been called this instance. */
+  saveCount = 0;
+  /**
+   * When non-null, loadData rejects with this error instead of resolving.
+   * Models the defensive case where Obsidian's loadData promise is rejected
+   * (e.g. due to an unhandled internal error beyond the observed undefined
+   * return on SyntaxError).
+   */
+  loadError: Error | null = null;
 
   async loadData(): Promise<unknown> {
+    if (this.loadError) throw this.loadError;
     return this.data;
   }
   async saveData(data: unknown): Promise<void> {
+    this.saveCount += 1;
     this.data = data;
   }
   registerEvent(ref: EventRef): void {
@@ -127,6 +138,44 @@ export class WorkspaceLeaf {
     this.isDeferred = false;
   }
   async setViewState(_state: { type: string }): Promise<void> {
+    // no-op
+  }
+}
+
+// --- Menu / icons ---
+// No-op stubs so modules importing them (e.g. rowMenu) resolve in tests. The
+// menu's DOM behavior is a manual-test concern; unit tests exercise the pure
+// decision functions (which items to build) instead.
+
+export function setIcon(_el: HTMLElement, _icon: string): void {
+  // no-op
+}
+
+export function setTooltip(_el: HTMLElement, _tooltip: string, _options?: unknown): void {
+  // no-op
+}
+
+export class MenuItem {
+  setTitle(_title: string): this {
+    return this;
+  }
+  setIcon(_icon: string): this {
+    return this;
+  }
+  onClick(_cb: (evt?: unknown) => unknown): this {
+    return this;
+  }
+}
+
+export class Menu {
+  addItem(cb: (item: MenuItem) => void): this {
+    cb(new MenuItem());
+    return this;
+  }
+  addSeparator(): this {
+    return this;
+  }
+  showAtMouseEvent(_evt: MouseEvent): void {
     // no-op
   }
 }

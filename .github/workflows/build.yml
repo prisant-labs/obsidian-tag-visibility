@@ -1,12 +1,17 @@
 name: build
 
-# CI gate for every PR and every push to main.
+# CI gate for every branch push and every PR to main.
 # Runs the full verification chain: lint -> typecheck -> test -> build -> verify-artifacts.
+# Branch pushes run the gate too (not just main): work-in-progress branches get
+# continuous verification, so nothing lands on main having never seen CI. A
+# same-repo PR runs twice (push + pull_request refs differ); accepted cost for
+# fork coverage. Tags are deliberately excluded here: release.yml owns tags and
+# re-runs the same gate at the tagged commit.
 # Keep permissions minimal: this job only reads the repo, it never writes.
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 

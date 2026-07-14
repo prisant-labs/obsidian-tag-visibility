@@ -40,13 +40,10 @@ const INTEGRATIONS: IntegrationDescriptor[] = [
       'Hidden and flagged tags are decorated in the Notebook Navigator tag tree when a compatible version (>= 2.0.0) is installed.',
     ],
   },
-  {
-    id: 'colored-tags-wrangler',
-    name: 'Colored Tags Wrangler',
-    bullets: [
-      'Not yet integrated in v1.0. Color delegation is planned for a future release.',
-    ],
-  },
+  // Only integrations that actually DO something are listed. A first-run modal is
+  // the worst place to advertise unshipped work: it makes a promise to a user who
+  // has been running the plugin for ten seconds. Add a descriptor here when the
+  // integration ships, not when it is planned.
 ];
 
 export class WelcomeModal extends Modal {
@@ -170,16 +167,12 @@ export class WelcomeModal extends Modal {
     integ: IntegrationDescriptor,
   ): void {
     const state = this.detectPluginState(integ.id);
-    const planned = integ.id === 'colored-tags-wrangler';
     const card = parent.createDiv({ cls: 'tcw-integ tcw-integ-collapsed' });
-    if (state === 'missing' && !planned) card.addClass('tcw-integ-muted');
+    if (state === 'missing') card.addClass('tcw-integ-muted');
     const head = card.createDiv({ cls: 'tcw-integ-head' });
     head.createDiv({ cls: 'tcw-integ-name', text: integ.name });
     const pill = head.createSpan({ cls: 'tcw-integ-pill' });
-    if (planned) {
-      pill.addClass('tcw-integ-pill-installed');
-      pill.setText('Planned');
-    } else if (state === 'enabled') {
+    if (state === 'enabled') {
       pill.addClass('tcw-integ-pill-enabled');
       pill.setText('Enabled');
     } else if (state === 'installed') {

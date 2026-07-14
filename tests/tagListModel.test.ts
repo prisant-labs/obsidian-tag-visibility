@@ -13,8 +13,17 @@ function hideRule(tag: string): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: [tag] },
-    action: 'hide',
-    scopes: ['tag-pane'],
+    action: 'hide',  };
+}
+
+function flagRule(tag: string): Rule {
+  return {
+    id: 'f-' + tag,
+    name: 'flag ' + tag,
+    enabled: true,
+    priority: 50,
+    match: { type: 'list', list: [tag] },
+    action: 'flag',
   };
 }
 
@@ -42,6 +51,20 @@ describe('TagListModel.allRows', () => {
       source([meta('drop')], { customRules: [hideRule('drop')], previewMode: true }),
     );
     expect(model.allRows()[0].visibility).toBe('flagged');
+  });
+
+  it('marks a flag-rule tag with marked visibility (visible, not hidden)', () => {
+    const model = new TagListModel(
+      source([meta('flagme')], { customRules: [flagRule('flagme')] }),
+    );
+    expect(model.allRows()[0].visibility).toBe('marked');
+  });
+
+  it('keeps a flag-rule tag marked in preview mode (preview-independent)', () => {
+    const model = new TagListModel(
+      source([meta('flagme')], { customRules: [flagRule('flagme')], previewMode: true }),
+    );
+    expect(model.allRows()[0].visibility).toBe('marked');
   });
 
   it('attaches every matching rule name to the row', () => {
@@ -77,10 +100,27 @@ describe('TagListModel.allRows', () => {
 });
 
 describe('TagListModel filtering and search', () => {
-  it('hidden chip keeps only non-shown rows', () => {
+  it('hidden chip keeps hide-intent tags and excludes flag (marked) tags', () => {
     const model = new TagListModel(
-      source([meta('keep'), meta('drop')], { customRules: [hideRule('drop')] }),
+      source([meta('keep'), meta('drop'), meta('flagme')], {
+        customRules: [hideRule('drop'), flagRule('flagme')],
+      }),
     );
+    model.setFilter('hidden');
+    // 'drop' is a hide rule (hide-intent); 'flagme' is a flag rule (marked, still
+    // visible) and must NOT appear under Hidden (#4); 'keep' is shown.
+    expect(model.rows().map((r) => r.meta.tag)).toEqual(['drop']);
+  });
+
+  it('hidden chip keeps a preview-flagged (hide-intent) tag', () => {
+    const model = new TagListModel(
+      source([meta('keep'), meta('drop')], {
+        customRules: [hideRule('drop')],
+        previewMode: true,
+      }),
+    );
+    // In preview mode a hide-intent tag paints 'flagged', but it is still a hide,
+    // so it belongs under Hidden, not Visible.
     model.setFilter('hidden');
     expect(model.rows().map((r) => r.meta.tag)).toEqual(['drop']);
   });
@@ -112,15 +152,26 @@ describe('TagListModel filtering and search', () => {
     expect(model.rows().map((r) => r.meta.tag)).toEqual(['new']);
   });
 
-  it('flagged chip keeps only rows whose visibility is flagged', () => {
+  it('flagged chip keeps flag-rule (marked) rows', () => {
     const model = new TagListModel(
-      source([meta('keep'), meta('drop')], {
-        customRules: [hideRule('drop')],
+      source([meta('keep'), meta('flagme')], { customRules: [flagRule('flagme')] }),
+    );
+    model.setFilter('flagged');
+    expect(model.rows().map((r) => r.meta.tag)).toEqual(['flagme']);
+  });
+
+  it('flagged chip excludes preview-flagged hide-intent rows (they belong to Hidden)', () => {
+    const model = new TagListModel(
+      source([meta('drop'), meta('flagme')], {
+        customRules: [hideRule('drop'), flagRule('flagme')],
         previewMode: true,
       }),
     );
+    // 'drop' is a hide rule painted 'flagged' by preview: hide-intent, so it stays
+    // under Hidden. Only 'flagme' (the flag action) is Flagged, so each tag lands
+    // in exactly one of Visible / Hidden / Flagged.
     model.setFilter('flagged');
-    expect(model.rows().map((r) => r.meta.tag)).toEqual(['drop']);
+    expect(model.rows().map((r) => r.meta.tag)).toEqual(['flagme']);
   });
 
   it('shown chip keeps only rows whose visibility is shown', () => {

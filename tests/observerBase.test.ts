@@ -65,9 +65,7 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['t'] },
-    action: 'hide',
-    scopes: ['tag-pane'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 
@@ -239,5 +237,35 @@ describe('ObserverBase', () => {
     await flushRaf();
 
     expect(row.classList.contains(DEC_HIDDEN)).toBe(true);
+  });
+
+  it('evicts a detached container and re-observes it if the host re-attaches it (DA-10)', async () => {
+    const c = makeContainer(['t']);
+    document.body.appendChild(c);
+    const obs = newObserver();
+    obs.setRules([rule()]);
+    obs.attach(c);
+    await flushRaf();
+    expect((c.querySelector('.row') as HTMLElement).classList.contains(DEC_HIDDEN)).toBe(true);
+
+    // Close the pane: the container detaches. The next pass must evict it
+    // (disconnect + forget) instead of re-walking the dead subtree forever.
+    c.remove();
+    obs.setRules([rule()]);
+    await flushRaf();
+
+    // Prove the observer no longer manages the detached tree: strip the
+    // decoration by hand, trigger another pass, and expect no re-decoration.
+    (c.querySelector('.row') as HTMLElement).classList.remove(DEC_HIDDEN);
+    obs.setRules([rule()]);
+    await flushRaf();
+    expect((c.querySelector('.row') as HTMLElement).classList.contains(DEC_HIDDEN)).toBe(false);
+
+    // The host brings the same element back (leaf re-attached): the dedupe
+    // entry must have been evicted too, so re-observation works and decorates.
+    document.body.appendChild(c);
+    obs.attach(c);
+    await flushRaf();
+    expect((c.querySelector('.row') as HTMLElement).classList.contains(DEC_HIDDEN)).toBe(true);
   });
 });

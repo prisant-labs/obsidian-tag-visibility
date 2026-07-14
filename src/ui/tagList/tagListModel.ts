@@ -2,7 +2,7 @@ import { TagCuratorSettings, TagMeta } from '../../types';
 import { RuleEngine } from '../../engine/ruleEngine';
 import { resolveActiveRules } from '../../engine/presets';
 
-export type TagVisibility = 'shown' | 'hidden' | 'flagged';
+export type TagVisibility = 'shown' | 'hidden' | 'flagged' | 'marked';
 export type SortKey = 'name' | 'count' | 'firstSeen' | 'lastSeen' | 'source' | 'visible';
 export type FilterChip =
   | 'all'
@@ -51,13 +51,12 @@ export class TagListModel {
         ruleId: m.ruleId,
         ruleName: m.ruleName,
       }));
-      // An effective match hides the tag unless it is an always-show override,
-      // which keeps the tag visible (the safety net beats every rule).
+      // resolveDecoration is the single hidden/flagged/marked decision (null =
+      // shown): a flag rule -> 'marked', a hide rule -> 'hidden' / 'flagged' in
+      // preview, and an always-show override -> shown (the safety net).
       const eff = attribution.effective;
-      let visibility: TagVisibility = 'shown';
-      if (RuleEngine.isEffectivelyHidden(eff)) {
-        visibility = settings.previewMode ? 'flagged' : 'hidden';
-      }
+      const visibility: TagVisibility =
+        RuleEngine.resolveDecoration(eff, settings.previewMode) ?? 'shown';
       rows.push({ meta: tagMeta, matches, visibility });
     }
     return rows;
@@ -91,9 +90,15 @@ export class TagListModel {
       case 'shown':
         return row.visibility === 'shown';
       case 'hidden':
-        return row.visibility !== 'shown';
+        // Hide-intent only: 'hidden' in normal mode, 'flagged' is that same hide
+        // painted amber in preview. A flag action ('marked') stays visible and
+        // belongs under the Flagged chip, not here (#4 intent partition).
+        return row.visibility === 'hidden' || row.visibility === 'flagged';
       case 'flagged':
-        return row.visibility === 'flagged';
+        // The flag action's persistent mark only. Hide-intent tags (including the
+        // preview 'flagged' paint) live under Hidden, so every curated tag lands
+        // in exactly one of Visible / Hidden / Flagged.
+        return row.visibility === 'marked';
       case 'orphans':
         return row.meta.count <= 1;
       case 'frontmatter':

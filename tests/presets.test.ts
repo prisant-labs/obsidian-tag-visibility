@@ -26,9 +26,9 @@ describe('PRESETS catalog', () => {
     expect(enabled).toEqual(['hide-hex-codes', 'hide-url-anchors']);
   });
 
-  it('every preset rule is scoped to tag-pane only', () => {
+  it('every preset rule hides and is builtin, with no per-rule scope', () => {
     for (const p of PRESETS) {
-      expect(p.rule.scopes).toEqual(['tag-pane']);
+      expect(p.rule).not.toHaveProperty('scopes');
       expect(p.rule.action).toBe('hide');
       expect(p.rule.builtin).toBe(true);
     }
@@ -119,18 +119,14 @@ describe('resolveActiveRules', () => {
         enabled: true,
         priority: 200,
         match: { type: 'list', list: ['x'] },
-        action: 'hide',
-        scopes: ['tag-pane'],
-      },
+        action: 'hide',      },
       {
         id: 'c2',
         name: 'disabled custom',
         enabled: false,
         priority: 300,
         match: { type: 'list', list: ['y'] },
-        action: 'hide',
-        scopes: ['tag-pane'],
-      },
+        action: 'hide',      },
     ];
     const result = resolveActiveRules(settingsWith({ enabledPresets: [], customRules: custom }));
     expect(result.map((r) => r.id)).toEqual(['c1']);
@@ -144,18 +140,14 @@ describe('resolveActiveRules', () => {
         enabled: true,
         priority: 1,
         match: { type: 'list', list: [] },
-        action: 'hide',
-        scopes: ['tag-pane'],
-      },
+        action: 'hide',      },
       {
         id: 'top',
         name: 'top',
         enabled: true,
         priority: 999,
         match: { type: 'list', list: [] },
-        action: 'hide',
-        scopes: ['tag-pane'],
-      },
+        action: 'hide',      },
     ];
     const result = resolveActiveRules(
       settingsWith({ enabledPresets: ['hide-hex-codes'], customRules: custom }),

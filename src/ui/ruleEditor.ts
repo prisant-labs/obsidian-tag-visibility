@@ -23,7 +23,6 @@ import {
   MatchCriteria,
   MatchType,
   Rule,
-  Scope,
   TagMeta,
 } from '../types';
 import { RuleEngine } from '../engine/ruleEngine';
@@ -202,7 +201,6 @@ export class RuleEditor {
       priority: DEFAULT_PRIORITY,
       match: { type: 'regex', pattern: '' },
       action: 'hide',
-      scopes: ['tag-pane'],
     };
   }
 
@@ -245,24 +243,28 @@ export class RuleEditor {
     });
 
     this.section(edit, 'Type', (sec) => {
-      const cards = sec.createDiv({ cls: 'tcr-type-cards' });
+      // A single dropdown + one-line byline (2b): the three full cards crowded
+      // the section and pushed the Match row down. The byline shows the selected
+      // type's help text; switching type re-renders so the Match inputs follow.
       const types: Array<[MatchType, string, string]> = [
         ['regex', 'Pattern match', 'A regex against the tag name'],
         ['frequency', 'Count threshold', "Compare the tag's note-count"],
         ['list', 'Specific tags', 'An explicit list of tags'],
       ];
-      for (const [t, cardTitle, desc] of types) {
-        const c = cards.createDiv({ cls: 'tcr-type-card' });
-        if (draft.match.type === t) c.addClass('on');
-        c.setAttribute('aria-pressed', draft.match.type === t ? 'true' : 'false');
-        c.createDiv({ cls: 'tcr-type-card-title', text: cardTitle });
-        c.createDiv({ cls: 'tcr-type-card-desc', text: desc });
-        makeActivatable(c, () => {
-          if (draft.match.type === t) return;
-          draft.match = blankCriteriaFor(t);
-          this.render();
-        });
+      const sel = sec.createEl('select', { cls: 'tcr-select tight' });
+      sel.setAttribute('aria-label', 'Match type');
+      for (const [t, cardTitle] of types) {
+        const opt = sel.createEl('option', { value: t, text: cardTitle });
+        if (draft.match.type === t) opt.selected = true;
       }
+      const desc = types.find(([t]) => t === draft.match.type)?.[2] ?? '';
+      sec.createDiv({ cls: 'tcr-type-byline', text: desc });
+      sel.addEventListener('change', () => {
+        const t = sel.value as MatchType;
+        if (t === draft.match.type) return;
+        draft.match = blankCriteriaFor(t);
+        this.render();
+      });
     });
 
     this.section(edit, 'Match', (sec) => {
@@ -274,44 +276,17 @@ export class RuleEditor {
       this.label(actionRow, 'Action');
       const ctl = this.control(actionRow);
       const sel = ctl.createEl('select', { cls: 'tcr-select tight' });
-      for (const a of ['hide', 'flag', 'show-only', 'group'] as Action[]) {
+      // 1.0 ships hide + flag. show-only (used internally by the always-show
+      // override) and group are deferred, so they are not offered here. A stored
+      // rule carrying a deferred action still loads and resolves - it degrades to
+      // the hide branch (see RuleEngine.resolveDecoration); the dropdown just
+      // shows no selected option for it until the user picks hide or flag.
+      for (const a of ['hide', 'flag'] as Action[]) {
         const opt = sel.createEl('option', { value: a, text: a });
         if (draft.action === a) opt.selected = true;
       }
       sel.addEventListener('change', () => {
         draft.action = sel.value as Action;
-      });
-
-      const scopeRow = this.row(sec);
-      const scopeLabel = this.label(scopeRow, 'Scope');
-      this.attachHelp(
-        scopeLabel,
-        'Where the rule applies. v0.1 supports tag-pane only; graph view, autocomplete, and properties chips arrive in v0.2.',
-      );
-      const sctl = this.control(scopeRow);
-      const ssel = sctl.createEl('select', { cls: 'tcr-select' });
-      const opts: Array<{
-        value: Scope[];
-        label: string;
-        disabled?: boolean;
-      }> = [
-        { value: ['tag-pane'], label: 'tag-pane' },
-        {
-          value: ['tag-pane', 'graph'],
-          label: 'tag-pane + graph (v0.2)',
-          disabled: true,
-        },
-      ];
-      for (const o of opts) {
-        const opt = ssel.createEl('option', {
-          value: o.value.join(','),
-          text: o.label,
-        });
-        if (o.disabled) opt.disabled = true;
-        if (draft.scopes.join(',') === o.value.join(',')) opt.selected = true;
-      }
-      ssel.addEventListener('change', () => {
-        draft.scopes = ssel.value.split(',') as Scope[];
       });
     });
 
@@ -404,9 +379,12 @@ export class RuleEditor {
         input.value = (draft.match.list ?? []).join(', ');
         input.placeholder = 'wip, todo, fixme';
         input.addEventListener('input', () => {
+          // Strip a typed leading '#': the engine matches hash-less tag names,
+          // so `#wip` entered here would otherwise silently never match (DA-12).
           const list = input.value
             .split(',')
             .map((s) => s.trim())
+            .map((s) => (s.startsWith('#') ? s.slice(1) : s))
             .filter(Boolean);
           draft.match = { type: 'list', list };
           this.renderPreviewForRule(draft);
@@ -669,7 +647,9 @@ export class RuleEditor {
   }
 
   private renderOverrideActions(parent: HTMLElement, tag: string): void {
-    const current = this.plugin.settingsManager.get().overrides[tag];
+    const overrides = this.plugin.settingsManager.get().overrides;
+    // Own-property guard (DA-08): see RuleEngine.resolveVisibility.
+    const current = Object.hasOwn(overrides, tag) ? overrides[tag] : undefined;
     const wrap = parent.createDiv({ cls: 'tcr-pd-ov' });
     wrap.createSpan({ cls: 'tcr-pd-kv-key', text: 'Override' });
     const btns = wrap.createDiv({ cls: 'tcr-pd-ov-btns' });
@@ -741,7 +721,6 @@ export class RuleEditor {
       priority: 0,
       match: criteria,
       action: 'hide',
-      scopes: ['tag-pane'],
     };
     try {
       return RuleEngine.testTag(m.tag, synthetic);

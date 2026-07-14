@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Plugin, View, WorkspaceLeaf } from 'obsidian';
+import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { PropertiesObserver } from '../src/observers/propertiesObserver';
 import { Rule, TagMeta } from '../src/types';
 
@@ -18,9 +18,7 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['draft'] },
-    action: 'hide',
-    scopes: ['properties'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 

@@ -6,6 +6,7 @@ import { ObservedRow, ObserverBase, DecorationMode } from './observerBase';
 // this surface independently.
 const HIDDEN_CLASS = 'tc-ac-hidden';
 const FLAG_CLASS = 'tc-ac-flagged';
+const MARK_CLASS = 'tc-ac-marked';
 const RULE_ATTR = 'data-tc-ac-rule';
 
 /**
@@ -28,15 +29,38 @@ const RULE_ATTR = 'data-tc-ac-rule';
  *   - Each suggestion is a `.suggestion-item`; its visible text lives in
  *     `.suggestion-content` (falling back to the item's own textContent).
  *
- * DISTINGUISHING TAG SUGGESTIONS (conservative heuristic). The SAME
- * `.suggestion-container` is reused for file links, headings, aliases, and so
- * on, so we must act ONLY on tag suggestions. The single most stable, version
- * independent signal is that the core editor tag autocomplete renders the tag
- * text with a leading '#' (e.g. `#draft`), whereas file / heading / link
- * suggestions never do. We therefore treat an item as a tag suggestion only
- * when its trimmed text starts with '#'. This is deliberately conservative: a
- * suggestion we cannot confirm is a tag is left untouched (we would rather miss
- * suppressing a tag than wrongly hide a file/heading suggestion).
+ * DISTINGUISHING TAG SUGGESTIONS (three conservative signals). The SAME
+ * `.suggestion-container` is reused for file links, headings, aliases, the
+ * Properties tags field, and so on, so we must act ONLY on tag suggestions.
+ * Three signals, any one sufficient:
+ *
+ *   1. LEGACY PREFIX: older Obsidian builds rendered tag suggestions with a
+ *      leading '#' (e.g. `#draft`); file / heading / link suggestions never
+ *      have one. An item whose trimmed text starts with '#' is a tag.
+ *   2. TYPING CONTEXT (Obsidian 1.12.x): the core tag suggester now strips
+ *      the leading '#' before rendering (its getSuggestions slices it off),
+ *      so items are bare names and signal 1 never fires. Instead we read the
+ *      active editor: if the text before the cursor ends in a '#token' that
+ *      is NOT inside an unclosed wikilink (typing `[[note#head` opens the
+ *      HEADING suggester), the open popup belongs to the tag suggester and
+ *      every item in it is a tag. Uses only public Editor API surface
+ *      (workspace.activeEditor.editor, getCursor, getLine), wrapped so any
+ *      failure means "not a tag context" rather than a throw.
+ *   3. PROPERTIES TAGS FIELD (H006): the Properties panel's own `tags` value
+ *      picker renders through this SAME popup, but it is not the note-body
+ *      editor signal 2 reads - so signal 2 only fired there by coincidence,
+ *      whenever the body's last cursor position happened to also look like a
+ *      '#token'. Instead we check whether the currently focused element
+ *      (`document.activeElement`) sits inside the Properties tags row
+ *      (`.metadata-property[data-property-key="tags"]`, mirroring
+ *      PropertiesObserver's own selector). Unlike the body editor, that field
+ *      never suggests anything but tags, so this signal alone is sufficient -
+ *      no '#' heuristic needed. Wrapped so any failure reads as "not a tag
+ *      context".
+ *
+ * All three signals are deliberately conservative: a suggestion we cannot
+ * confirm is a tag is left untouched (we would rather miss suppressing a tag
+ * than wrongly hide a file/heading suggestion).
  *
  * KEYBOARD-FOCUS CAVEAT (accepted for v1.0): hiding a suggestion item via CSS
  * `display:none` removes it visually, but Obsidian's own suggestion controller
@@ -50,11 +74,22 @@ const RULE_ATTR = 'data-tc-ac-rule';
 const SUGGESTION_CONTAINER_SELECTOR = '.suggestion-container';
 const SUGGESTION_ITEM_SELECTOR = '.suggestion-item';
 const SUGGESTION_CONTENT_SELECTOR = '.suggestion-content';
+// Mirrors PropertiesObserver's own TAGS_PROPERTY_SELECTOR (H006, signal 3
+// above). Duplicated rather than imported: each observer documents its own
+// version-fragile DOM contract independently, and this is the one selector
+// the two files need to agree on.
+const PROPERTIES_TAGS_ROW_SELECTOR = '.metadata-property[data-property-key="tags"]';
+
+interface EditorLike {
+  getCursor(): { line: number; ch: number };
+  getLine(line: number): string;
+}
 
 interface ObserverApp {
   workspace: {
     onLayoutReady: (cb: () => void) => void;
     on: (event: string, cb: () => void) => unknown;
+    activeEditor?: { editor?: EditorLike } | null;
   };
 }
 
@@ -120,11 +155,51 @@ export class AutocompleteObserver extends ObserverBase {
    * normally zero, and a few dozen at most while a popup is open - so the body
    * observer's apply cost is bounded by the popup contents, not the whole page.
    */
+  /**
+   * True when the active editor's cursor sits at the end of a '#token' that is
+   * not inside an unclosed wikilink - i.e. the open suggestion popup belongs
+   * to the core tag suggester and its (bare-name) items are tags. Any missing
+   * piece (no active editor, no cursor, host API drift) reads as false: not a
+   * tag context, leave the popup untouched.
+   */
+  private isTagTypingContext(): boolean {
+    try {
+      const app = this.app as unknown as ObserverApp;
+      const editor = app.workspace.activeEditor?.editor;
+      if (!editor) return false;
+      const cursor = editor.getCursor();
+      const before = editor.getLine(cursor.line).slice(0, cursor.ch);
+      // `[[note#head` opens the HEADING suggester; never treat it as tags.
+      if (/\[\[[^\]]*$/.test(before)) return false;
+      return /#[^\s#]*$/.test(before);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * True when the currently focused element (H006, signal 3) sits inside the
+   * Properties `tags` row - i.e. the open suggestion popup belongs to that
+   * field's own value picker, which never suggests anything but tags. Any
+   * failure (no activeElement, DOM shape drift) reads as false: not a tag
+   * context, leave the popup untouched.
+   */
+  private isPropertiesTagsFieldFocused(): boolean {
+    try {
+      return !!document.activeElement?.closest(PROPERTIES_TAGS_ROW_SELECTOR);
+    } catch {
+      return false;
+    }
+  }
+
   protected findRows(root: HTMLElement): ObservedRow[] {
     const containers = root.querySelectorAll<HTMLElement>(
       SUGGESTION_CONTAINER_SELECTOR,
     );
     const out: ObservedRow[] = [];
+    // Resolved once per pass: with a popup open, the editor/focus state is
+    // stable for the duration of the pass.
+    const inTagContext = this.isTagTypingContext() || this.isPropertiesTagsFieldFocused();
     for (const container of Array.from(containers)) {
       const items = container.querySelectorAll<HTMLElement>(
         SUGGESTION_ITEM_SELECTOR,
@@ -132,13 +207,13 @@ export class AutocompleteObserver extends ObserverBase {
       for (const item of Array.from(items)) {
         const contentEl = item.querySelector(SUGGESTION_CONTENT_SELECTOR) ?? item;
         const text = (contentEl.textContent ?? '').trim();
-        // Conservative tag-suggestion test: only act on items whose text begins
-        // with '#'. File / heading / link suggestions never do, so they are
-        // left untouched. Pass the text case-preserved (trim only); the base
-        // apply() strips the leading '#'. The engine is CASE-SENSITIVE, so we
-        // must NOT lowercase - that would make the same tag behave differently
-        // in autocomplete vs the tag pane.
-        if (!text.startsWith('#')) continue;
+        if (!text) continue;
+        // Signal 1 (legacy prefix) or signal 2 (typing context) - see the
+        // DOM-contract comment above. Pass the text case-preserved (trim
+        // only); the base apply() strips a leading '#'. The engine is
+        // CASE-SENSITIVE, so we must NOT lowercase - that would make the same
+        // tag behave differently in autocomplete vs the tag pane.
+        if (!text.startsWith('#') && !inTagContext) continue;
         out.push({ el: item, tag: text });
       }
     }
@@ -150,29 +225,23 @@ export class AutocompleteObserver extends ObserverBase {
     ruleId: string,
     mode: DecorationMode,
   ): void {
-    if (mode === 'hidden') {
-      el.classList.add(HIDDEN_CLASS);
-      el.classList.remove(FLAG_CLASS);
-      el.setAttribute('aria-hidden', 'true');
-      el.setAttribute(RULE_ATTR, ruleId);
-    } else {
-      el.classList.add(FLAG_CLASS);
-      el.classList.remove(HIDDEN_CLASS);
-      el.removeAttribute('aria-hidden');
-      el.setAttribute(RULE_ATTR, ruleId);
-    }
+    el.classList.toggle(HIDDEN_CLASS, mode === 'hidden');
+    el.classList.toggle(FLAG_CLASS, mode === 'flagged');
+    el.classList.toggle(MARK_CLASS, mode === 'marked');
+    if (mode === 'hidden') el.setAttribute('aria-hidden', 'true');
+    else el.removeAttribute('aria-hidden');
+    el.setAttribute(RULE_ATTR, ruleId);
   }
 
   protected clearDecoration(el: HTMLElement): void {
-    el.classList.remove(HIDDEN_CLASS);
-    el.classList.remove(FLAG_CLASS);
+    el.classList.remove(HIDDEN_CLASS, FLAG_CLASS, MARK_CLASS);
     el.removeAttribute('aria-hidden');
     el.removeAttribute(RULE_ATTR);
   }
 
   protected findDecorated(root: HTMLElement): HTMLElement[] {
     return Array.from(
-      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}`),
+      root.querySelectorAll<HTMLElement>(`.${HIDDEN_CLASS}, .${FLAG_CLASS}, .${MARK_CLASS}`),
     );
   }
 }

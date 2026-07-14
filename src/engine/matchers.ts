@@ -28,7 +28,11 @@ export class TagMatcher {
         if (!meta) return false;
         return this.matchFrequency(meta.count, criteria.operator, criteria.value ?? 0);
       case 'list':
-        return (criteria.list ?? []).includes(tag);
+        // The rule editor normalizes entries hash-less; strip here too so a
+        // hand-edited or synced `#tag` entry still matches (DA-12).
+        return (criteria.list ?? []).some(
+          (entry) => (entry.startsWith('#') ? entry.slice(1) : entry) === tag,
+        );
       default:
         return false;
     }

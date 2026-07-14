@@ -81,7 +81,7 @@ export class TagMetaManager extends Events {
       // Durable settings is authoritative for reviewed; mirror it onto the store.
       this.hydrateReviewed();
     } catch (e) {
-      console.error('[tag-curator] tags.json corrupted, rebuilding', e);
+      console.error('[tag-visibility] tags.json corrupted, rebuilding', e);
       this.store = new Map();
     }
   }
@@ -98,15 +98,17 @@ export class TagMetaManager extends Events {
    * `sources`, and `lastSeen` are recomputed from current state. Fires a single
    * `changed` after the swap (not one per file).
    */
-  async scanAll(): Promise<void> {
+  async scanAll(): Promise<boolean> {
     const files = this.app.vault.getMarkdownFiles();
     const previousStore = this.store;
     const freshStore = new Map<string, TagMeta>();
     const freshFileTags = new Map<string, Set<string>>();
     const now = Date.now();
+    let cachedFiles = 0;
 
     for (const file of files) {
-      const { currentTags, sourcesByTag } = this.readFileTags(file);
+      const { currentTags, sourcesByTag, cached } = this.readFileTags(file);
+      if (cached) cachedFiles += 1;
       freshFileTags.set(file.path, currentTags);
       for (const tag of currentTags) {
         const sources = sourcesByTag.get(tag) ?? ['frontmatter'];
@@ -134,6 +136,22 @@ export class TagMetaManager extends Events {
       }
     }
 
+    // Cold-cache guard (B-05). The vault has files but Obsidian has not indexed a
+    // single one of them, so every tag set above came back empty for want of a
+    // cache, not for want of tags. Swapping this in would report an empty vault
+    // and flush `{"tags":{}}` over a good sidecar, destroying the descriptions and
+    // aliases that live nowhere else. Keep the loaded store, change nothing on
+    // disk, and tell the caller we deferred so it can rescan once the cache
+    // resolves. Keyed on cache availability, never on "the result looks empty": a
+    // genuinely untagged vault has a warm cache and must still be persisted.
+    if (files.length > 0 && cachedFiles === 0) {
+      console.warn(
+        `[tag-visibility] metadata cache is not ready (0 of ${files.length} files indexed). ` +
+          'Skipping the reindex so tags.json is not overwritten; will rescan once the cache resolves.',
+      );
+      return false;
+    }
+
     this.store = freshStore;
     this.fileTags = freshFileTags;
     // Durable settings is authoritative for reviewed; mirror it onto the rebuilt
@@ -141,6 +159,7 @@ export class TagMetaManager extends Events {
     this.hydrateReviewed();
     await this.flushNow();
     this.trigger('changed');
+    return true;
   }
 
   /**
@@ -152,6 +171,7 @@ export class TagMetaManager extends Events {
   private readFileTags(file: TFile): {
     currentTags: Set<string>;
     sourcesByTag: Map<string, TagSource[]>;
+    cached: boolean;
   } {
     const cache = this.app.metadataCache.getFileCache(file);
     const inlineTags = (cache?.tags ?? []).map((t) => t.tag);
@@ -173,7 +193,11 @@ export class TagMetaManager extends Events {
       if (seen.length === 0) seen.push('frontmatter'); // via cache but neither set
       sourcesByTag.set(tag, seen);
     }
-    return { currentTags, sourcesByTag };
+    // `cached` distinguishes "Obsidian has indexed this file" from "this file has
+    // no tags". getFileCache returns null for an unindexed file and an object
+    // (possibly empty) for an indexed one; scanAll needs that difference to tell a
+    // cold cache apart from an untagged vault (B-05).
+    return { currentTags, sourcesByTag, cached: cache !== null && cache !== undefined };
   }
 
   indexFile(file: TFile): void {

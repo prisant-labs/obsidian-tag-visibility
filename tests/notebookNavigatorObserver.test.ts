@@ -20,20 +20,17 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['photo'] },
-    action: 'hide',
-    scopes: ['notebook-navigator'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 
-function meta(tag: string, count: number): TagMeta {
-  return {
-    tag,
-    firstSeen: 0,
-    lastSeen: 0,
-    count,
-    sources: ['inline'],
-  };
+/** A metadata map keyed by the vault's canonical-cased tag (DA-14 fixtures). */
+function metaMap(...tags: Array<[string, number]>): Map<string, TagMeta> {
+  const map = new Map<string, TagMeta>();
+  for (const [tag, count] of tags) {
+    map.set(tag, { tag, firstSeen: 0, lastSeen: 0, count, sources: ['inline'] });
+  }
+  return map;
 }
 
 /**
@@ -161,6 +158,86 @@ describe('NotebookNavigatorObserver basic decoration', () => {
     const row = rowFor(scroller, 'photo');
     expect(row.classList.contains('nn-navitem')).toBe(true);
     expect(row.classList.contains('nn-tag')).toBe(true);
+  });
+});
+
+describe('NotebookNavigatorObserver case-insensitive resolution (DA-14)', () => {
+  it('hides a mixed-case tag whose NN data-tag is lowercase, via a list rule in canonical case', async () => {
+    // NN lowercases data-tag to "myproject"; the vault tag + the rule are
+    // "MyProject". Pre-fix this missed on both the metadata lookup and the
+    // case-sensitive list match, so it decorated everywhere BUT NN.
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 5]));
+    obs.setRules([rule({ match: { type: 'list', list: ['MyProject'] } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('hides a mixed-case tag via a frequency rule (needs the metadata lookup to hit)', async () => {
+    // A frequency rule returns false when meta is undefined, so this case only
+    // passes once the lowercase data-tag resolves to the canonical metadata key.
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 1]));
+    obs.setRules([rule({ match: { type: 'frequency', operator: '<=', value: 1 } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('resolves an always-hide override on a mixed-case tag despite NN lowercasing', async () => {
+    const { pane, scroller } = makeNnPane([['myproject', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 3]));
+    obs.setRules([]);
+    obs.setOverrides({ MyProject: 'hide' });
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('inherits a mixed-case ancestor hide down to a lowercase-rendered descendant', async () => {
+    // NN renders "MyProject/SubTag" as data-tag "myproject/subtag"; a rule on
+    // the canonical parent "MyProject" must still cascade to the child row.
+    const { pane, scroller } = makeNnPane([
+      ['myproject', 0],
+      ['myproject/subtag', 1],
+    ]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setMetadata(metaMap(['MyProject', 4], ['MyProject/SubTag', 2]));
+    obs.setRules([rule({ match: { type: 'list', list: ['MyProject'] } })]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'myproject').classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(rowFor(scroller, 'myproject/subtag').classList.contains(HIDDEN_CLASS)).toBe(true);
+  });
+
+  it('leaves all-lowercase vaults unchanged when no metadata is set (fallback path)', async () => {
+    // The existing behavior: with no metadata index, data-tag passes through
+    // verbatim and a lowercase list rule still matches.
+    const { pane, scroller } = makeNnPane([['photo', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(rowFor(scroller, 'photo').classList.contains(HIDDEN_CLASS)).toBe(true);
   });
 });
 
@@ -360,5 +437,65 @@ describe('NotebookNavigatorObserver clear-on-unload', () => {
     const row = rowFor(scroller, 'photo');
     expect(row.classList.contains(HIDDEN_CLASS)).toBe(false);
     expect(row.hasAttribute(RULE_ATTR)).toBe(false);
+  });
+});
+
+/**
+ * Mutation delivery + the coalesced apply: MutationObserver callbacks fire on
+ * a task boundary in happy-dom, then scheduleApply queues a (stubbed,
+ * microtask) rAF pass, and re-decoration may fire one follow-on pass. Flush
+ * all three.
+ */
+async function flushMutations(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushRaf();
+  await flushRaf();
+}
+
+describe('NotebookNavigatorObserver survives host re-renders (React className wipe)', () => {
+  it('re-decorates a row whose class attribute was rewritten in place', async () => {
+    const { pane, scroller } = makeNnPane([['photo', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setRules([rule({ id: 'hide-photo' })]);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = rowFor(scroller, 'photo');
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(true);
+
+    // Simulate NN's React reconciliation on click/selection: it rewrites the
+    // row's className from its own vDOM, wiping foreign classes IN PLACE (an
+    // attribute mutation - no childList or characterData change fires).
+    row.className = 'nn-navitem nn-tag nn-selected';
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(false);
+
+    await flushMutations();
+
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(row.getAttribute(RULE_ATTR)).toBe('hide-photo');
+    // NN's own classes are preserved by the repair.
+    expect(row.classList.contains('nn-selected')).toBe(true);
+  });
+});
+
+describe('NotebookNavigatorObserver dim-in-place (Approach A)', () => {
+  it('keeps hidden rows aria-visible: dimmed and struck through, not removed', async () => {
+    const { pane, scroller } = makeNnPane([['photo', 0]]);
+    document.body.appendChild(pane);
+    const { app } = makeApp([pane]);
+    const obs = new NotebookNavigatorObserver(app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = rowFor(scroller, 'photo');
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(true);
+    // NN's committed-offset virtualizer keeps the row's slot forever, so the
+    // shipped hidden treatment is dim + strikethrough: the row stays visible
+    // and interactive. aria-hidden on visible interactive content would be an
+    // accessibility violation, so the hidden mode must NOT set it here.
+    expect(row.hasAttribute('aria-hidden')).toBe(false);
   });
 });

@@ -78,6 +78,12 @@ describe('TagMatcher.matches - list', () => {
     expect(TagMatcher.matches('done', undefined, c)).toBe(false);
   });
 
+  it('matches an entry that carries a leading # (hand-edited or synced data.json) (DA-12)', () => {
+    const c: MatchCriteria = { type: 'list', list: ['#wip'] };
+    expect(TagMatcher.matches('wip', undefined, c)).toBe(true);
+    expect(TagMatcher.matches('#wip', undefined, c)).toBe(false);
+  });
+
   it('treats missing list as empty', () => {
     const c = { type: 'list' } as MatchCriteria;
     expect(TagMatcher.matches('anything', undefined, c)).toBe(false);

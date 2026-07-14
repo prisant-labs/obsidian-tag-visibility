@@ -8,19 +8,16 @@ export default tseslint.config(
   // A config with only `ignores` is the flat-config replacement for ignorePatterns.
   // node_modules is ignored by default, so it no longer needs listing.
   {
-    ignores: [
-      'main.js',
-      'docs/',
-      // Legacy UI files queued for rewrite; remove when the rewrites land.
-      'src/ui/settingsTab.ts',
-      'src/ui/tagListView.ts',
-      'src/ui/ruleEditor.ts',
-    ],
+    ignores: ['main.js', 'docs/'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts'],
+    // Both shipped source AND the test suite are gated: the suite is itself a
+    // release gate, so it deserves the same hygiene bar (DA-18 removed the
+    // legacy per-file exemptions; nothing may be exempted from lint again
+    // without a written reason here).
+    files: ['src/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

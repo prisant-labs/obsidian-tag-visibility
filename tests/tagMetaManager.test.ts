@@ -113,6 +113,78 @@ describe('TagMetaManager.scanAll + load', () => {
     expect(parsed.tags.wip.count).toBe(1);
   });
 
+  // B-05 (cold-cache sidecar wipe): getFileCache returns null both for "this file
+  // is not indexed yet" and for "this file has no tags". A scan that runs before
+  // Obsidian has populated the metadata cache therefore reads every file as
+  // untagged, and the empty result used to be swapped in as authoritative and
+  // flushed over a good tags.json. Observed live on a 17k-note vault: a 486 KB
+  // sidecar was replaced with `{"tags":{}}`. The sidecar is the ONLY home for
+  // user-authored descriptions and aliases, which are not rebuildable.
+  it('B-05: a scan on a cold metadata cache does not wipe the store or the sidecar', async () => {
+    const app = makeApp();
+    const path = '.obsidian/plugins/tag-curator/tags.json';
+    await app.vault.adapter.write(
+      path,
+      JSON.stringify({
+        schemaVersion: 2,
+        tags: {
+          todo: {
+            tag: 'todo',
+            firstSeen: 1,
+            lastSeen: 1,
+            count: 2,
+            sources: ['inline'],
+            description: 'user-authored, not rebuildable',
+          },
+        },
+      }),
+    );
+
+    // The vault HAS markdown files, but the metadata cache has no entry for any
+    // of them: Obsidian is still indexing. addFile() is deliberately not used,
+    // because it would also seed the cache.
+    app.vault.markdownFiles.push(new TFile('a.md'), new TFile('b.md'));
+
+    const mgr = new TagMetaManager(app as never, makePlugin());
+    await mgr.load();
+    expect(mgr.all().size).toBe(1);
+
+    const scanned = await mgr.scanAll();
+
+    // In-memory store survives.
+    expect(mgr.all().size).toBe(1);
+    // On-disk sidecar survives, including the user-authored field.
+    const onDisk = JSON.parse(app.vault.adapter.files.get(path)!);
+    expect(Object.keys(onDisk.tags)).toEqual(['todo']);
+    expect(onDisk.tags.todo.description).toBe('user-authored, not rebuildable');
+    // The scan reports that it deferred rather than that the vault is empty.
+    expect(scanned).toBe(false);
+  });
+
+  // B-05 companion: the guard keys off cache availability, NOT off "the result is
+  // empty", so a genuinely untagged vault (files present, cache warm, no tags)
+  // still scans and still persists an empty store.
+  it('B-05: a warm cache with genuinely untagged files still scans and persists', async () => {
+    const app = makeApp();
+    addFile(app, 'a.md', []);
+    addFile(app, 'b.md', []);
+
+    const mgr = new TagMetaManager(app as never, makePlugin());
+    const scanned = await mgr.scanAll();
+
+    expect(scanned).toBe(true);
+    expect(mgr.all().size).toBe(0);
+    const written = app.vault.adapter.files.get('.obsidian/plugins/tag-curator/tags.json');
+    expect(JSON.parse(written!).tags).toEqual({});
+  });
+
+  // B-05 companion: an empty vault (no markdown files at all) is not a cold cache;
+  // it must scan normally rather than deferring forever.
+  it('B-05: an empty vault scans normally', async () => {
+    const mgr = new TagMetaManager(makeApp() as never, makePlugin());
+    expect(await mgr.scanAll()).toBe(true);
+  });
+
   it('load reads a previously written tags.json', async () => {
     const app = makeApp();
     const plugin = makePlugin();

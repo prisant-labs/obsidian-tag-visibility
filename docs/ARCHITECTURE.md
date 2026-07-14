@@ -4,7 +4,7 @@ Tag Visibility is a **display-only** Obsidian plugin: it changes how tags *rende
 
 ## The prime directive: decorate, never mutate
 
-Every architectural choice follows from one rule: **the plugin must not modify the vault's notes.** It therefore works entirely at the rendered-DOM layer. To hide a tag, an observer adds a plugin-owned class (for example `.tag-curator-hidden`) to the rendered row, and a CSS rule collapses it with `display: none`. Nothing is removed from the document model, no note is rewritten, and the only persisted state is the plugin's own config plus a metadata sidecar. That single constraint is what makes the plugin fully reversible.
+Every architectural choice follows from one rule: **the plugin must not modify the vault's notes.** It therefore works entirely at the rendered-DOM layer. To hide a tag, an observer adds a plugin-owned class (for example `.tag-curator-hidden`) to the rendered row, and a CSS rule collapses it with `display: none`. (Notebook Navigator's tree is the one exception: its virtualizer reserves each row's slot regardless, so hidden rows there are dimmed and struck through in place instead of collapsed - see Virtualization below.) Nothing is removed from the document model, no note is rewritten, and the only persisted state is the plugin's own config plus a metadata sidecar. That single constraint is what makes the plugin fully reversible.
 
 ## Layers
 
@@ -78,7 +78,7 @@ src/
     notebookNavigator.ts        # detect + reapply subscription
     notebookNavigatorApi.ts
   ui/
-    settingsTab.ts              # Tabbed settings (General, All Tags, Scopes, Presets, ...)
+    settingsTab.ts              # Tabbed settings (General, All tags, Scopes, Presets, ...)
     ruleEditor.ts               # Card-based rule editor + live preview
     stateBanner.ts              # Persistent non-default-state banner
     welcomeModal.ts             # First-run onboarding
@@ -153,6 +153,11 @@ The base owns: a registry of observed containers, a `MutationObserver` per conta
 
 Each scope has an independent kill switch, so a single misbehaving surface can be turned off without disabling the plugin. The effective enabled state of a scope is `globalEnable AND scopeKillSwitch`.
 
+Two surfaces override pieces of the base contract:
+
+- **Notebook Navigator watches class-attribute mutations.** NN is React-rendered: selecting a row makes React rewrite the row's `className` from its own vDOM, wiping the `tc-nn-*` classes in place - an attribute-only mutation that `childList`/`characterData` watching never sees. `NotebookNavigatorObserver` overrides the base's `observerInit()` hook to add `attributes: true, attributeFilter: ['class']`, and its decorate path uses strictly idempotent writes (every class/attribute write is guarded on the current value). That guard is load-bearing: `setAttribute` queues a mutation record even when the value is unchanged, so an unguarded write under attribute watching would re-trigger the observer forever. A re-decoration pass over an already-correct tree is mutation-silent.
+- **Autocomplete detects tag suggestions by typing context.** Obsidian 1.12.x's tag suggester strips the leading `#` before rendering, so items are bare names and the legacy "text starts with `#`" signal never fires there. The observer's second signal reads the active editor: if the text before the cursor ends in a `#token` that is not inside an unclosed wikilink (`[[note#head` opens the heading suggester, which must never be touched), the open popup belongs to the tag suggester and its items are tags. Public Editor API only, wrapped so any failure reads as "not a tag context"; the legacy `#`-prefix signal is kept for older builds.
+
 ## Decoration lifecycle
 
 ```mermaid
@@ -186,7 +191,7 @@ sequenceDiagram
 
 Two files, deliberately split to avoid write races:
 
-- **`data.json`** (`SettingsManager`) - schema-versioned settings: rules, enabled presets, scope kill switches, per-tag overrides, preview/enabled flags, pane state. Migrations are one-way, additive, and guarded; writes are atomic (write-temp-then-rename).
+- **`data.json`** (`SettingsManager`) - schema-versioned settings: rules, enabled presets, scope kill switches, per-tag overrides, preview/enabled flags, pane state. Migrations are one-way, additive, and guarded; writes go through Obsidian's plugin-data API (`Plugin.saveData`), and a file written by a newer plugin version is treated as read-only so an older build can never downgrade it.
 - **`tags.json`** (`TagMetaManager`) - the tag-metadata sidecar: count, first seen, last seen, and source per tag. Writes are debounced (default 5000 ms) to avoid disk churn while editing. This is the plugin's own derived index, not note content.
 
 ## Reversibility and safety
@@ -200,7 +205,7 @@ Two files, deliberately split to avoid write races:
 Obsidian virtualizes large surfaces (the tag pane and Notebook Navigator's tree) by recycling a small pool of row elements and mutating their text in place as you scroll. Two consequences shape the design:
 
 1. The shared `MutationObserver` watches `characterData`, so when a recycled row's text changes the observer re-evaluates and re-decorates it. Without this a recycled row would keep the prior tag's decoration.
-2. On very large vaults (thousands of tags) the core tag pane can still leave a brief stale glyph or gap in the densest regions until the pane re-renders. This is a known limitation tracked for a virtualizer-aware fix; see the Known limitations section of [CHANGELOG.md](../CHANGELOG.md).
+2. Virtualizers position rows from a cached height model, not from the DOM alone, so hiding a row via CSS leaves its modeled height behind - an invisible row whose space stays reserved. `TagPaneObserver` therefore runs a **model-DOM coherence sweep** after every apply pass: any row whose display state disagrees with the pane's cached `info.hidden` is re-measured through the pane's own `measure()`, then the virtual display refreshes once. The sweep is idempotent (coherent rows are skipped, so passes converge instead of ping-ponging with the host) and feature-detects undocumented internals verified on Obsidian 1.12.7; if those internals ever drift, it silently stands down and the pane reclaims space on its next natural redraw. Notebook Navigator's virtualizer commits row offsets up front inside a fixed-height container and cannot be re-measured from outside, which is why its hidden rows dim in place instead of collapsing. Residual cosmetics (a brief stale glyph or blank region until the next pass) are listed under Known limitations in [CHANGELOG.md](../CHANGELOG.md).
 
 ## See also
 

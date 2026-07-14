@@ -86,4 +86,15 @@ describe('subscribeReapply', () => {
     unsub();
     expect(offCalls).toEqual(['storage-ready', 'tag-changed']);
   });
+
+  it('degrades to a no-op when the API lacks on/off, instead of throwing (DA-16)', () => {
+    const api = fakeApi('2.0.0', {
+      on: undefined as unknown as NotebookNavigatorApi['on'],
+    });
+    let unsub: () => void = () => {};
+    expect(() => {
+      unsub = subscribeReapply(api, () => {});
+    }).not.toThrow();
+    expect(() => unsub()).not.toThrow();
+  });
 });

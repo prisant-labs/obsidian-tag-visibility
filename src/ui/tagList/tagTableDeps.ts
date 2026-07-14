@@ -14,7 +14,7 @@ export interface TagTableDeps {
 
 /**
  * Build the headless trio that drives a TagTable, for ANY host surface (the
- * dockable leaf or the All Tags settings tab). `requestRefresh` is the
+ * dockable leaf or the All tags settings tab). `requestRefresh` is the
  * surface's own repaint callback; `surface` selects which independent column
  * prefs slot this table reads and writes (item 8a).
  */

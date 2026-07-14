@@ -7,12 +7,16 @@
 const CLASSES = [
   'tag-curator-hidden',
   'tag-curator-flagged',
+  'tag-curator-marked',
   'tc-nn-hidden',
   'tc-nn-flagged',
+  'tc-nn-marked',
   'tc-prop-hidden',
   'tc-prop-flagged',
+  'tc-prop-marked',
   'tc-ac-hidden',
   'tc-ac-flagged',
+  'tc-ac-marked',
 ];
 const ATTRS = [
   'data-tag-curator-rule',

@@ -4,7 +4,10 @@
 
 ## Project Overview
 
-*Brief description of the project, its purpose, and key technologies.*
+An Obsidian community plugin (TypeScript, esbuild, Vitest) that controls which tags are visible
+across Obsidian's UI via rules, presets, and per-tag overrides. Display-only by architecture: it
+decorates rendered tags with CSS classes and never writes note content or the network. Verification
+gate and release pipeline: `docs/CI.md`. Build/test commands: `CLAUDE.md` and `CONTRIBUTING.md`.
 
 ## Agents
 

@@ -15,8 +15,37 @@
  */
 import { Menu, setIcon } from 'obsidian';
 import { RuleEngine } from '../../engine/ruleEngine';
+import { TagOverride } from '../../types';
 import { TagActions, VisibilityIntent } from '../tagList/tagActions';
 import { TagListDiagnosticsHost } from './tagTableHost';
+
+export interface OverrideMenuSpec {
+  title: string;
+  icon: string;
+  intent: VisibilityIntent;
+}
+
+/**
+ * Which override actions to offer for a tag, in menu order. Pure so the choice is
+ * unit-testable without Obsidian's Menu (see the module note above). "Always
+ * show" / "Always hide" are always available; "Clear override" only makes sense
+ * when an override actually exists for THIS tag, so it is omitted otherwise (#1b).
+ */
+export function overrideMenuSpecs(
+  tag: string,
+  overrides: Record<string, TagOverride>,
+): OverrideMenuSpec[] {
+  const specs: OverrideMenuSpec[] = [
+    { title: 'Always show', icon: 'eye', intent: 'show' },
+    { title: 'Always hide', icon: 'eye-off', intent: 'hide' },
+  ];
+  // Object.hasOwn: a tag named like an Object.prototype member must not read an
+  // inherited function as a fake override (DA-08).
+  if (Object.hasOwn(overrides, tag)) {
+    specs.push({ title: 'Clear override', icon: 'rotate-ccw', intent: 'clear' });
+  }
+  return specs;
+}
 
 /**
  * Open the per-row override menu at the click position. Each override action
@@ -48,9 +77,9 @@ export function openRowMenu(
     );
   };
 
-  overrideItem('Always show', 'eye', 'show');
-  overrideItem('Always hide', 'eye-off', 'hide');
-  overrideItem('Clear override', 'rotate-ccw', 'clear');
+  for (const spec of overrideMenuSpecs(tag, host.getSettings().overrides)) {
+    overrideItem(spec.title, spec.icon, spec.intent);
+  }
 
   // Tag Wrangler delegation (D-016, optional): only offered when Tag Wrangler
   // is enabled. Reuses the tested TagActions.sendToTagWrangler dispatch (which

@@ -38,7 +38,6 @@ export interface Rule {
   priority: number;
   match: MatchCriteria;
   action: Action;
-  scopes: Scope[];
   notes?: string;
   builtin?: boolean;
 }
@@ -66,7 +65,7 @@ export interface TableColumnPrefs {
 
 /**
  * The two surfaces that host the tag table. Column visibility is kept
- * independently per surface (a narrow docked pane and the wide All Tags
+ * independently per surface (a narrow docked pane and the wide All tags
  * settings tab want different column sets - item 8a).
  */
 export type TableSurface = 'pane' | 'settings';
@@ -86,7 +85,6 @@ export interface TagCuratorSettings {
   schemaVersion: number;
   enabled: boolean;
   mode: Mode;
-  defaultScopes: Scope[];
   enabledPresets: string[];
   customRules: Rule[];
   // Per-tag visibility overrides (D-015), keyed by tag (no leading #). Resolved
@@ -94,10 +92,10 @@ export interface TagCuratorSettings {
   // always-show on the same tag. Schema v4 added this; v3->v4 defaults it to {}.
   overrides: Record<string, TagOverride>;
   // Per-scope global enable, keyed by Scope (e.g. 'tag-pane', 'notebook-navigator').
-  // This is the "is this surface live at all" switch and is deliberately separate
-  // from `defaultScopes` (which controls rule applicability per scope). A scope
-  // absent from the map is treated as enabled (see isScopeEnabled): the four v1.0
-  // scopes default true. Schema v5 added this; v4->v5 defaults it. Phases 6-8
+  // This is the "is this surface live at all" global switch and the only scope
+  // control (rules themselves are global, applying to every enabled surface). A
+  // scope absent from the map is treated as enabled (see isScopeEnabled): the four
+  // v1.0 scopes default true. Schema v5 added this; v4->v5 defaults it. Phases 6-8
   // reuse this field for properties / autocomplete / the Settings Scopes section.
   scopeEnabled: Record<string, boolean>;
   previewMode: boolean;
@@ -110,8 +108,8 @@ export interface TagCuratorSettings {
   // False until the notice has been shown once; flipped true and persisted so the
   // user is not nagged on every load when NN is below MIN_API_VERSION.
   seenNnTooOldNotice: boolean;
-  // Whether the dockable Tag Visibility Pane is available (opt-in surface). Curation
-  // always lives in the All Tags settings tab; this only governs the sidebar
+  // Whether the dockable Tag Visibility pane is available (on by default). Curation
+  // always lives in the All tags settings tab; this only governs the sidebar
   // leaf, its ribbon icon, and the open-pane commands. Schema v6 added this.
   paneEnabled: boolean;
   // Which optional tag-table columns are visible (2-5), kept independently per
@@ -128,7 +126,6 @@ export const DEFAULT_SETTINGS: TagCuratorSettings = {
   schemaVersion: SCHEMA_VERSION,
   enabled: true,
   mode: 'default',
-  defaultScopes: ['tag-pane'],
   enabledPresets: ['hide-hex-codes', 'hide-url-anchors'],
   customRules: [],
   overrides: {},
@@ -145,7 +142,7 @@ export const DEFAULT_SETTINGS: TagCuratorSettings = {
   seenNnTooOldNotice: false,
   paneEnabled: true,
   // The narrow docked pane opens lean - tag / count / visibility only (item 3) -
-  // while the wide All Tags settings tab shows every column.
+  // while the wide All tags settings tab shows every column.
   tableColumns: {
     pane: { lastSeen: false, source: false, rule: false },
     settings: { lastSeen: true, source: true, rule: true },
@@ -171,7 +168,6 @@ export interface AttributedMatch {
   ruleId: string;
   ruleName: string;
   action: Action;
-  scopes: Scope[];
   priority: number;
   builtin: boolean;
   reason: string;

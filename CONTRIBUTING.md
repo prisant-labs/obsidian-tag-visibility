@@ -25,7 +25,7 @@ Tag Visibility is **display-only**. It decorates how tags render by toggling CSS
 |---|---|
 | `npm run dev` | esbuild in watch mode (rebuilds `main.js` on save) |
 | `npm run build` | one production build of `main.js` |
-| `npm run lint` | ESLint over `src` (`--max-warnings 0`) |
+| `npm run lint` | ESLint over `src` and `tests` (`--max-warnings 0`, no exempted files) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run test` | the Vitest suite once |
 | `npm run test:watch` | Vitest in watch mode |
@@ -33,20 +33,22 @@ Tag Visibility is **display-only**. It decorates how tags render by toggling CSS
 ## Testing your change in Obsidian
 
 1. `npm run build` (or leave `npm run dev` running).
-2. Copy `main.js`, `manifest.json`, and `styles.css` into your test vault at `.obsidian/plugins/tag-curator/` (the folder matches the manifest `id`).
+2. Copy `main.js`, `manifest.json`, and `styles.css` into your test vault at `.obsidian/plugins/tag-visibility/` (the folder matches the manifest `id`).
 3. Do a **full app reload** (`Ctrl+R` / `Cmd+R`). A plugin off/on toggle does not refresh injected CSS, so a CSS change needs a full reload.
 
 For an install-from-GitHub loop, [BRAT](https://github.com/TfTHacker/obsidian42-brat) works against tagged releases.
 
 ## The verification gate
 
-CI (`.github/workflows/build.yml`) runs the full chain on every push and PR to `main`:
+CI (`.github/workflows/build.yml`) runs the full chain on **every branch push** and every PR to `main`:
 
 ```bash
 npm run lint && npm run typecheck && npm run test && npm run build
 ```
 
 **A PR must be green on all four.** Run them locally before pushing. Tests use Vitest; the observer tests run under `happy-dom` (see `tests/observerBase.test.ts` for the recycling-aware pattern). New behavior needs a test; a bug fix needs a regression test.
+
+The full pipeline, including how releases are cut and verified, is documented in [docs/CI.md](docs/CI.md).
 
 ## Coding conventions
 
@@ -79,3 +81,4 @@ Valid types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `ci`, `test`. 
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - the canonical layered design (observers, engine, storage), visibility resolution, and how decoration is applied and reversed.
 - [docs/TESTING.md](docs/TESTING.md) - the QA smoke matrix and manual test plan.
+- [docs/CI.md](docs/CI.md) - the CI workflows, the verification gate, and the release pipeline.

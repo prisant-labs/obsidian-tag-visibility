@@ -15,16 +15,21 @@ import { panicCleanup } from '../src/ui/panicDisable';
  * lists, this test fails.
  */
 
-// Every decoration class panic must strip, one per scope x mode.
+// Every decoration class panic must strip, one per scope x mode (hidden /
+// flagged / marked).
 const SCOPE_CLASSES = [
   'tag-curator-hidden',
   'tag-curator-flagged',
+  'tag-curator-marked',
   'tc-nn-hidden',
   'tc-nn-flagged',
+  'tc-nn-marked',
   'tc-prop-hidden',
   'tc-prop-flagged',
+  'tc-prop-marked',
   'tc-ac-hidden',
   'tc-ac-flagged',
+  'tc-ac-marked',
 ];
 
 // Every data-*-rule attr panic must strip, one per scope.

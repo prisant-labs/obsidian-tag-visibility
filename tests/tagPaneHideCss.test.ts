@@ -23,3 +23,27 @@ describe('core tag-pane scope CSS', () => {
     expect(css).toMatch(/\.tag-pane-tag\.tag-curator-flagged\b/);
   });
 });
+
+/**
+ * NN scope ships Approach A (decided 2026-07-01): NN's committed-offset
+ * virtualizer reserves every row's slot forever, so display:none leaves
+ * permanent gap bands. Hidden NN rows are dimmed and struck through instead -
+ * visible, interactive, clearly suppressed.
+ */
+describe('Notebook Navigator scope CSS (dim + strikethrough)', () => {
+  it('does not display:none NN hidden rows (the slot cannot be reclaimed)', () => {
+    expect(css).not.toMatch(
+      /\.nn-tag\.tc-nn-hidden\b[^{]*\{[^}]*display:\s*none/,
+    );
+  });
+
+  it('dims the hidden row in place', () => {
+    expect(css).toMatch(/\.nn-tag\.tc-nn-hidden\b[^{]*\{[^}]*opacity/);
+  });
+
+  it('strikes through the tag name only (count badge stays legible)', () => {
+    expect(css).toMatch(
+      /\.nn-tag\.tc-nn-hidden\s+\.nn-navitem-name\b[^{]*\{[^}]*line-through/,
+    );
+  });
+});

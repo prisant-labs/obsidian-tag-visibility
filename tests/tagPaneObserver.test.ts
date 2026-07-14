@@ -7,6 +7,7 @@ import { Rule, TagMeta } from '../src/types';
 
 const HIDDEN_CLASS = 'tag-curator-hidden';
 const FLAG_CLASS = 'tag-curator-flagged';
+const MARK_CLASS = 'tag-curator-marked';
 const TAG_ATTR = 'data-tag-curator-rule';
 const TAG_VIEW_TYPE = 'tag';
 
@@ -17,9 +18,7 @@ function rule(overrides: Partial<Rule> = {}): Rule {
     enabled: true,
     priority: 50,
     match: { type: 'list', list: ['t'] },
-    action: 'hide',
-    scopes: ['tag-pane'],
-    ...overrides,
+    action: 'hide',    ...overrides,
   };
 }
 
@@ -304,6 +303,39 @@ describe('TagPaneObserver preview mode', () => {
   });
 });
 
+describe('TagPaneObserver flag action', () => {
+  it('marks a flag-rule tag (visible), not hidden, in normal mode', async () => {
+    const container = makeTagPane(['t']);
+    document.body.appendChild(container);
+    const { app } = makeApp([container]);
+    const obs = new TagPaneObserver(app as never, new Plugin());
+    obs.setRules([rule({ action: 'flag' })]);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = container.querySelector('.tag-pane-tag') as HTMLElement;
+    expect(row.classList.contains(MARK_CLASS)).toBe(true);
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(false);
+    expect(row.hasAttribute('aria-hidden')).toBe(false); // marked stays visible
+    expect(row.getAttribute(TAG_ATTR)).toBe('r');
+  });
+
+  it('keeps the flag mark in preview mode (preview-independent)', async () => {
+    const container = makeTagPane(['t']);
+    document.body.appendChild(container);
+    const { app } = makeApp([container]);
+    const obs = new TagPaneObserver(app as never, new Plugin());
+    obs.setRules([rule({ action: 'flag' })]);
+    obs.setPreviewMode(true);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = container.querySelector('.tag-pane-tag') as HTMLElement;
+    expect(row.classList.contains(MARK_CLASS)).toBe(true);
+    expect(row.classList.contains(FLAG_CLASS)).toBe(false);
+  });
+});
+
 describe('TagPaneObserver.setEnabled', () => {
   it('false strips all hide/flag classes and attributes', async () => {
     const container = makeTagPane(['t']);
@@ -448,5 +480,219 @@ describe('TagPaneObserver reads the current Obsidian tag-pane DOM', () => {
 
     const row = container.querySelector('.tag-pane-tag') as HTMLElement;
     expect(row.classList.contains(HIDDEN_CLASS)).toBe(false);
+  });
+});
+
+/**
+ * Coherence-sweep fixtures: a fake tag-pane VIEW carrying the two undocumented
+ * internals the sweep touches (`tagDoms`, `tree.infinityScroll`). Shapes mirror
+ * what live probes captured on Obsidian 1.12.7 (findings brief, Commands K/L):
+ * `tagDoms` maps lowercase '#tag' keys to items whose `selfEl` IS the
+ * `.tag-pane-tag` row, and the virtualizer's `measure(parent, item)` re-reads
+ * the row's real geometry into `item.info`. Without the sweep, a row hidden by
+ * CSS keeps `info.hidden=false` and the layout sums count it at the average
+ * row height (the zombie-average gap).
+ */
+interface FakeSweepItem {
+  selfEl: HTMLElement;
+  parent?: unknown;
+  info: { hidden: boolean; height: number };
+}
+
+function makeSweepHarness(
+  tags: string[],
+  modelHidden: Partial<Record<string, boolean>> = {},
+) {
+  const container = makeTagPane(tags);
+  document.body.appendChild(container);
+
+  const tagDoms: Record<string, FakeSweepItem> = {};
+  const rows = Array.from(container.querySelectorAll<HTMLElement>('.tag-pane-tag'));
+  rows.forEach((row, i) => {
+    const tag = tags[i];
+    const hidden = modelHidden[tag] ?? false;
+    tagDoms[`#${tag.toLowerCase()}`] = {
+      selfEl: row,
+      info: { hidden, height: hidden ? 0 : 27 },
+    };
+  });
+
+  const rootEl = { root: true };
+  // Mimics the real measure (Command K7): re-reads the row's display state.
+  const measure = vi.fn((_parent: unknown, item: FakeSweepItem) => {
+    const nowHidden = item.selfEl.classList.contains(HIDDEN_CLASS);
+    item.info.hidden = nowHidden;
+    item.info.height = nowHidden ? 0 : 27;
+  });
+  const updateVirtualDisplay = vi.fn();
+
+  const view = new View(container) as View & {
+    tagDoms?: Record<string, FakeSweepItem>;
+    tree?: { infinityScroll?: unknown };
+  };
+  view.tagDoms = tagDoms;
+  view.tree = { infinityScroll: { rootEl, measure, updateVirtualDisplay } };
+
+  const leaf = new WorkspaceLeaf(view);
+  const workspace: FakeWorkspace = {
+    onLayoutReady: (cb) => cb(),
+    on: (event, cb) => ({ event, cb }),
+    getLeavesOfType: (type) => (type === TAG_VIEW_TYPE ? [leaf] : []),
+  };
+  return {
+    app: { workspace },
+    container,
+    view,
+    tagDoms,
+    rootEl,
+    measure,
+    updateVirtualDisplay,
+  };
+}
+
+describe('TagPaneObserver virtualizer coherence sweep (zombie-average repair)', () => {
+  it('re-measures a newly hidden row whose model still says visible, then refreshes the display once', async () => {
+    const h = makeSweepHarness(['t', 'other']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(h.measure).toHaveBeenCalledTimes(1);
+    expect(h.measure).toHaveBeenCalledWith(h.rootEl, h.tagDoms['#t']);
+    expect(h.tagDoms['#t'].info.hidden).toBe(true);
+    expect(h.tagDoms['#other'].info.hidden).toBe(false);
+    expect(h.updateVirtualDisplay).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-measures upward when a row is un-hidden (rule removed)', async () => {
+    const h = makeSweepHarness(['t']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+    expect(h.tagDoms['#t'].info.hidden).toBe(true);
+
+    obs.setRules([]);
+    await flushRaf();
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(false);
+    expect(h.measure).toHaveBeenCalledTimes(2);
+    expect(h.updateVirtualDisplay).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes the item parent to measure when the item has one', async () => {
+    const h = makeSweepHarness(['t']);
+    const parentItem = { parentMarker: true };
+    h.tagDoms['#t'].parent = parentItem;
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(h.measure).toHaveBeenCalledWith(parentItem, h.tagDoms['#t']);
+  });
+
+  it('leaves a coherent pane untouched (no measure, no display refresh)', async () => {
+    const h = makeSweepHarness(['t', 'other']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([]);
+    obs.attachAll();
+    await flushRaf();
+
+    expect(h.measure).not.toHaveBeenCalled();
+    expect(h.updateVirtualDisplay).not.toHaveBeenCalled();
+  });
+
+  it('degrades silently when the view lacks the virtualizer internals', async () => {
+    const h = makeSweepHarness(['t']);
+    h.view.tree = undefined;
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = h.container.querySelector('.tag-pane-tag') as HTMLElement;
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(h.updateVirtualDisplay).not.toHaveBeenCalled();
+  });
+
+  it('degrades silently when measure is not a function', async () => {
+    const h = makeSweepHarness(['t']);
+    h.view.tree = {
+      infinityScroll: {
+        rootEl: h.rootEl,
+        measure: undefined,
+        updateVirtualDisplay: h.updateVirtualDisplay,
+      },
+    };
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+
+    const row = h.container.querySelector('.tag-pane-tag') as HTMLElement;
+    expect(row.classList.contains(HIDDEN_CLASS)).toBe(true);
+    expect(h.updateVirtualDisplay).not.toHaveBeenCalled();
+  });
+
+  it('swallows a measure that throws, repairs the rest, and retries the victim next pass', async () => {
+    const h = makeSweepHarness(['t', 't2']);
+    h.measure.mockImplementationOnce(() => {
+      throw new Error('host hiccup');
+    });
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule({ match: { type: 'list', list: ['t', 't2'] } })]);
+    obs.attachAll(); // synchronous first pass: 't' repair throws, 't2' repairs
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(false); // throw victim, still stale
+    expect(h.tagDoms['#t2'].info.hidden).toBe(true); // unaffected by the throw
+
+    await flushRaf(); // the next pass finds 't' still incoherent and retries
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(true);
+    expect(h.updateVirtualDisplay).toHaveBeenCalledTimes(2);
+  });
+
+  it('sweeps immediately on disable so un-hidden rows are re-measured', async () => {
+    const h = makeSweepHarness(['t']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+    expect(h.tagDoms['#t'].info.hidden).toBe(true);
+
+    obs.setEnabled(false);
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(false);
+  });
+
+  it('sweeps during apply passes while disabled (kill-switch coherence)', async () => {
+    const h = makeSweepHarness(['t']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+    obs.setEnabled(false);
+
+    // Damage the model behind the plugin's back; a later pass must repair it.
+    h.tagDoms['#t'].info.hidden = true;
+    obs.setRules([]);
+    await flushRaf();
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(false);
+  });
+
+  it('sweeps on unload so the pane model is left coherent', async () => {
+    const h = makeSweepHarness(['t']);
+    const obs = new TagPaneObserver(h.app as never, new Plugin());
+    obs.setRules([rule()]);
+    obs.attachAll();
+    await flushRaf();
+    expect(h.tagDoms['#t'].info.hidden).toBe(true);
+
+    obs.unload();
+
+    expect(h.tagDoms['#t'].info.hidden).toBe(false);
   });
 });

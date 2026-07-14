@@ -1,6 +1,6 @@
 import { App, Plugin } from 'obsidian';
 import { Rule, RuleAttribution, TagMeta, TagOverride } from '../types';
-import { RuleEngine } from '../engine/ruleEngine';
+import { Decoration, RuleEngine } from '../engine/ruleEngine';
 
 /**
  * Shared lifecycle for DOM observers that decorate tag rows in some host surface
@@ -22,7 +22,9 @@ export interface ObservedRow {
   tag: string;
 }
 
-export type DecorationMode = 'hidden' | 'flagged';
+// The decoration a row can carry. Equals the engine's Decoration decision so the
+// observer and the engine never drift; null (shown) is handled in apply().
+export type DecorationMode = Decoration;
 
 export abstract class ObserverBase {
   protected app: App;
@@ -78,17 +80,26 @@ export abstract class ObserverBase {
   }
 
   /**
+   * MutationObserver init for this surface. childList + subtree catches rows
+   * mounting/unmounting; characterData catches virtualized panes recycling a
+   * row by mutating its text in place (without it a recycled row keeps the
+   * prior tag's decoration). apply() only touches classes/attributes, never
+   * text or children, so the default set cannot self-trigger a loop. Surfaces
+   * whose host REWRITES class attributes in place (React reconciliation in
+   * Notebook Navigator) override this to watch class mutations too.
+   */
+  protected observerInit(): MutationObserverInit {
+    return { childList: true, subtree: true, characterData: true };
+  }
+
+  /**
    * Start observing a container, decorate it once, and register cleanup.
    * Idempotent: observing the same container twice is a no-op.
    */
   protected observeContainer(containerEl: HTMLElement): void {
     if (this.observers.has(containerEl)) return;
     const obs = new MutationObserver(() => this.scheduleApply());
-    // characterData catches virtualized panes (the core tag pane, Notebook
-    // Navigator) recycling a row by mutating its text in place; without it a
-    // recycled row keeps the prior tag's decoration. apply() only touches
-    // classes/attributes, never text, so this cannot self-trigger a loop.
-    obs.observe(containerEl, { childList: true, subtree: true, characterData: true });
+    obs.observe(containerEl, this.observerInit());
     this.observers.set(containerEl, obs);
     this.containers.add(containerEl);
     this.plugin.register(() => {
@@ -104,13 +115,36 @@ export abstract class ObserverBase {
     this.rafQueued = true;
     requestAnimationFrame(() => {
       this.rafQueued = false;
-      for (const container of this.containers) this.apply(container);
+      for (const container of this.containers) {
+        // A closed leaf/view detaches its container, but nothing else removes
+        // it from the registry until plugin unload; without eviction every
+        // pass re-walks the dead subtree and the observer pins it in memory
+        // for the whole session (DA-10).
+        if (!container.isConnected) {
+          this.evictContainer(container);
+          continue;
+        }
+        this.apply(container);
+      }
     });
+  }
+
+  /**
+   * Stop observing a detached container and forget it. The observers entry must
+   * be deleted too: observeContainer dedupes on it, so a stale entry would
+   * block re-observing the same element if the host re-attaches it later
+   * (attachAll re-discovers returning panes on layout events).
+   */
+  private evictContainer(containerEl: HTMLElement): void {
+    this.observers.get(containerEl)?.disconnect();
+    this.observers.delete(containerEl);
+    this.containers.delete(containerEl);
   }
 
   protected apply(root: HTMLElement): void {
     if (!this.enabled) {
       this.clearWithin(root);
+      this.afterApply(root);
       return;
     }
     for (const { el, tag } of this.findRows(root)) {
@@ -118,18 +152,29 @@ export abstract class ObserverBase {
       const normalized = tag.startsWith('#') ? tag.slice(1) : tag;
       const meta = this.metadata.get(normalized);
       const { effective } = this.resolveRow(normalized, meta);
-      // An always-show override keeps the row visible (beats every rule); any
-      // other effective match hides it, or flags it in preview mode.
-      const hides = RuleEngine.isEffectivelyHidden(effective);
-      if (hides) {
-        // isEffectivelyHidden guarantees effective is non-null; the assertion
+      // resolveDecoration is the single hidden/flagged/marked decision: null when
+      // shown (no match, or an always-show override); 'marked' for a flag rule in
+      // either mode; 'hidden' / 'flagged' for a hide rule (flagged in preview).
+      const deco = RuleEngine.resolveDecoration(effective, this.previewMode);
+      if (deco) {
+        // A non-null decoration guarantees effective is non-null; the assertion
         // lets TypeScript know without duplicating the null check inline.
-        this.applyDecoration(el, effective!.ruleId, this.previewMode ? 'flagged' : 'hidden');
+        this.applyDecoration(el, effective!.ruleId, deco);
       } else {
         this.clearDecoration(el);
       }
     }
+    this.afterApply(root);
   }
+
+  /**
+   * Post-pass hook, called after every apply pass over a container - including
+   * passes taken while disabled (which clear instead of decorate). Surfaces
+   * that must reconcile host-owned state with the decorations they just
+   * changed override this; the core tag pane uses it for its virtualizer
+   * coherence sweep. Default: no-op.
+   */
+  protected afterApply(_root: HTMLElement): void {}
 
   /**
    * Resolve a single row's visibility. The default delegates to the shared
