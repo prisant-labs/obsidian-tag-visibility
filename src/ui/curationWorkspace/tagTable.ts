@@ -167,6 +167,24 @@ export class TagTable {
 
   private readonly onScroll = (): void => { this.renderWindow(); };
 
+  /**
+   * The viewport height the current window was rendered against; -1 until the
+   * first render. DA-25: the constructor renders synchronously, before the leaf
+   * has layout, so scrollEl.clientHeight is 0 and visibleRange correctly returns
+   * [0, OVERSCAN) - six rows for a list of any size. The spacer is sized from the
+   * row COUNT (no layout needed), so the scrollbar looked right while the pane
+   * painted six rows. Nothing recomputed that window: the sole trigger was the
+   * scroll listener, which made scrolling an accidental recovery rather than a
+   * fix, and left dead space when the sidebar was dragged taller.
+   *
+   * The observer below is the recompute the table never had. It covers both
+   * triggers with one mechanism: layout landing (0 -> real height) and any later
+   * resize. Guarded on an actual height CHANGE so a re-render can never feed back
+   * into the observer.
+   */
+  private lastViewportHeight = -1;
+  private resizeObs: ResizeObserver | null = null;
+
   constructor(
     parent: HTMLElement,
     private model: TagListModel,
@@ -368,6 +386,14 @@ export class TagTable {
     this.emptyEl.addClass('tc-hidden');
 
     this.scrollEl.addEventListener('scroll', this.onScroll);
+
+    // DA-25. Fires when the leaf is first laid out (clientHeight 0 -> real) and
+    // on every sidebar resize thereafter.
+    this.resizeObs = new ResizeObserver(() => {
+      if (this.scrollEl.clientHeight === this.lastViewportHeight) return;
+      this.renderWindow();
+    });
+    this.resizeObs.observe(this.scrollEl);
   }
 
   // -----------------------------------------------------------------
@@ -452,10 +478,15 @@ export class TagTable {
   // -----------------------------------------------------------------
 
   private renderWindow(): void {
+    // Record the height this window was computed for, so the resize observer can
+    // tell a real layout change from a no-op callback (DA-25).
+    const viewport = this.scrollEl.clientHeight;
+    this.lastViewportHeight = viewport;
+
     const { start, end } = visibleRange(
       this.scrollEl.scrollTop,
       ROW_HEIGHT,
-      this.scrollEl.clientHeight,
+      viewport,
       this.rows.length,
       OVERSCAN,
     );
@@ -579,6 +610,8 @@ export class TagTable {
   destroy(): void {
     if (this.searchTimer !== null) window.clearTimeout(this.searchTimer);
     this.scrollEl.removeEventListener('scroll', this.onScroll);
+    this.resizeObs?.disconnect();
+    this.resizeObs = null;
     this.bulkBar.destroy();
     this.root.remove();
   }
