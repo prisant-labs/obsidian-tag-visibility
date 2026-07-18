@@ -125,7 +125,7 @@ The heart of v1.0 is the **Tag Visibility panel**: a real, dockable workspace le
 3. Pick the latest release tag when prompted.
 4. Enable Tag Visibility under Community Plugins.
 
-BRAT offers updates automatically whenever a new beta is published.
+BRAT offers updates automatically whenever a new release is published.
 
 **Manual:**
 
@@ -278,7 +278,7 @@ Tag Visibility works on Obsidian Mobile (iOS and Android): all four display scop
 Tag Visibility is display-only and file-safe, so it plays well with the rest of your tag ecosystem.
 
 - **Dataview, Tasks, and Bases**: unaffected. Because Tag Visibility only changes how tags render and never patches the metadata cache or note content, every metadata-cache consumer sees the full, unfiltered tag set. Your queries, indexes, and results are exactly what they would be without Tag Visibility installed.
-- **Tag Wrangler** (the rename surface): Tag Visibility delegates renaming to Tag Wrangler and never writes note content itself. When Tag Wrangler is enabled, the Tag Visibility panel adds a per-row "Rename with Tag Wrangler" menu item and a bulk "Send to Tag Wrangler" action. When it is not installed, those actions are hidden or disabled and everything else still works.
+- **Tag Wrangler** (the rename surface): Tag Visibility delegates renaming to Tag Wrangler and never writes note content itself. When Tag Wrangler is enabled, the Tag Visibility panel adds a per-row "Rename with Tag Wrangler" menu item that opens Tag Wrangler's own rename dialog, one tag at a time. When it is not installed, the menu item is simply absent and everything else still works.
 - **Style Settings** (optional): install it to customize Tag Visibility's hidden- and flagged-tag styling through a GUI. Tag Visibility ships built-in defaults for every themeable value, so styling works fully without Style Settings.
 - **Notebook Navigator** (optional): when present, Tag Visibility decorates Notebook Navigator's tag tree through runtime interop only. There is no source coupling between the two (Notebook Navigator is GPL-3.0, Tag Visibility is Apache-2.0); Tag Visibility targets the rendered rows from the outside and is a no-op when Notebook Navigator is absent.
 
