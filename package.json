@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tag-visibility",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Hide, flag, or always-show any tag across the tag pane, Properties, autocomplete, and Notebook Navigator. Display-only, file-safe, fully reversible.",
   "main": "main.js",
   "scripts": {
