@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [1.0.2] - 2026-07-18
 
-Directory-review hygiene pass: every automated-review warning that is safe to fix at the 1.9.10 floor, plus release hardening. No feature changes.
+Directory-review hygiene pass: every automated-review warning that is safe to fix at the 1.9.10 floor, plus release hardening. No feature changes. The complete finding-by-finding record (DR-01 to DR-16, including what was deliberately kept and why) lives in [docs/DIRECTORY-REVIEW.md](docs/DIRECTORY-REVIEW.md).
 
 ### Changed
 
@@ -25,7 +25,7 @@ Directory-review hygiene pass: every automated-review warning that is safe to fi
 
 ### Changed
 
-- Manifest and package descriptions reworded to name the four surfaces (tag pane, Properties, autocomplete, Notebook Navigator) instead of the app: the community directory's automated review rejects the word "Obsidian" inside plugin descriptions as redundant. No code changes.
+- Manifest and package descriptions reworded to name the four surfaces (tag pane, Properties, autocomplete, Notebook Navigator) instead of the app: the community directory's automated review rejects the word "Obsidian" inside plugin descriptions as redundant (DR-01 in [docs/DIRECTORY-REVIEW.md](docs/DIRECTORY-REVIEW.md)). No code changes.
 
 ## [1.0.0] - 2026-07-18
 

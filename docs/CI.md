@@ -23,6 +23,8 @@ CI additionally verifies all four artifacts exist after the build: `main.js`, `m
 `styles.css`, `versions.json`. Only the first three are attached to releases; `versions.json`
 is consulted by Obsidian from the repository, and the directory validator rejects it as a
 release asset. Release assets also carry GitHub artifact attestations (build provenance).
+Both behaviors come out of the community directory's automated review; the finding-by-finding
+record is [DIRECTORY-REVIEW.md](DIRECTORY-REVIEW.md).
 
 ## The three workflows
 
