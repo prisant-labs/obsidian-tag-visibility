@@ -4,7 +4,7 @@ The record of every issue raised by the Obsidian community directory's automated
 
 Findings carry `DR-` ids in the style of this project's other audit trails (`DA-`, `B-`), so tests, commits, and docs can cite them precisely.
 
-**Status: all findings dispositioned as of 1.0.2.** Fixed items name the release and commit that resolved them. Kept items are deliberate, with the reasoning recorded here. One item is deferred with a tracked backlog id.
+**Status: all findings dispositioned as of 1.0.2, and confirmed by the portal's re-review of 1.0.2** (2026-07-18): the re-run raised no Errors and no new findings; it lists exactly the seven items recorded here as kept (DR-04, DR-13, DR-14, DR-15, DR-16) or deferred (DR-11, which spans the `getSettingDefinitions` warning and the `display()` deprecation notices). Fixed items name the release and commit that resolved them. Kept items are deliberate, with the reasoning recorded here. The remaining advisories are expected to persist: DR-11 clears when backlog item B018 ships, and the keeps stand unless the supported-version floor changes.
 
 ## Round 1: version 1.0.0 (one Error, blocking)
 
