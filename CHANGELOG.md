@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-18
+
+### Changed
+
+- Manifest and package descriptions reworded to name the four surfaces (tag pane, Properties, autocomplete, Notebook Navigator) instead of the app: the community directory's automated review rejects the word "Obsidian" inside plugin descriptions as redundant. No code changes.
+
 ## [1.0.0] - 2026-07-18
 
 "See only the tags you want." The active visibility loop moves out of the Settings modal and into a real, dockable pane that sits beside the tag pane, so every change is visible as it lands.

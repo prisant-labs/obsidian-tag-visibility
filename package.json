@@ -1,7 +1,7 @@
 {
   "name": "obsidian-tag-visibility",
   "version": "1.0.0",
-  "description": "Control which tags are visible across Obsidian's UI: hide, flag, and pin. Display-only, file-safe, fully reversible.",
+  "description": "Hide, flag, or always-show any tag across the tag pane, Properties, autocomplete, and Notebook Navigator. Display-only, file-safe, fully reversible.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
