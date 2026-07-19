@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-18
+
+Directory-review hygiene pass: every automated-review warning that is safe to fix at the 1.9.10 floor, plus release hardening. No feature changes.
+
+### Changed
+
+- Release assets (`main.js`, `styles.css`) now carry GitHub artifact attestations, so their build provenance can be cryptographically verified against this repository. `versions.json` is no longer attached to releases: Obsidian consults it from the repository, and the directory flags extra release assets.
+- Popout-window safety: the observer frame scheduler and the sidecar save debounce now call `window.requestAnimationFrame` / `window.setTimeout` explicitly.
+- Promise hygiene: leaf reveals are awaited, the deferred tag-pane load and welcome-modal actions are explicitly fire-and-forget, and two redundant type assertions are gone.
+- The build config's Node builtin list now comes from `node:module` instead of the `builtin-modules` package (one dev dependency removed).
+
+### Fixed
+
+- Frontmatter `tags:` values that are not strings (for example a bare numeric tag) are now coerced to strings when indexed instead of being stored raw.
+
 ## [1.0.1] - 2026-07-18
 
 ### Changed

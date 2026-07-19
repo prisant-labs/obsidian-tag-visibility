@@ -257,6 +257,8 @@ Both are pretty-printed JSON for easy git diffing.
 
 Tag Visibility never modifies note content. It does not patch `metadataCache.getTags()` or any other internal Obsidian API. Dataview, Tasks, and Bases see the real, unfiltered tag data. This is architecture, not a promise: the plugin contains no note-writing code. Every write it makes targets its own two files (`data.json` and `tags.json`); it never calls a note-mutating API such as `vault.modify`, `fileManager.renameFile`, or `processFrontMatter`. The one note-changing action, renaming a tag, is delegated to Tag Wrangler on your explicit request.
 
+What it reads: building the tag index lists the vault's files and reads each file's entry in Obsidian's metadata cache (the same tag data Obsidian itself maintains). Note contents are never read; the only file the plugin reads is its own `tags.json` sidecar.
+
 ```mermaid
 flowchart LR
     Notes["Your notes<br/>(never written)"] --> Cache["Obsidian metadata cache<br/>(unmodified)"]

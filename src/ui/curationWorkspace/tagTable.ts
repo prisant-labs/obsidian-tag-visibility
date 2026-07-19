@@ -460,7 +460,7 @@ export class TagTable {
   private syncSortHeaders(): void {
     const { key, desc } = this.model.sortState;
     for (const [colKey, cell] of this.headerCells) {
-      const arrow = cell.querySelector('.tct-sort-arrow') as HTMLElement | null;
+      const arrow = cell.querySelector<HTMLElement>('.tct-sort-arrow');
       cell.toggleClass('active', colKey === key);
       if (!arrow) continue;
       if (colKey === key) arrow.setText(desc ? '▼' : '▲');

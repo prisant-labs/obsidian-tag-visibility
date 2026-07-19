@@ -38,7 +38,7 @@ export async function openBesideTagPane(deps: OpenBesideDeps): Promise<void> {
     tagLeaf = workspace.getLeftLeaf(false);
     if (tagLeaf) {
       await tagLeaf.setViewState({ type: 'tag', active: true });
-      workspace.revealLeaf(tagLeaf);
+      await workspace.revealLeaf(tagLeaf);
       tagLeaves = workspace.getLeavesOfType('tag');
       tagLeaf = tagLeaves[0] ?? tagLeaf;
     }
@@ -47,7 +47,7 @@ export async function openBesideTagPane(deps: OpenBesideDeps): Promise<void> {
   // Step 2: reuse an existing workspace leaf if one is already open.
   const existing = workspace.getLeavesOfType(curationViewType);
   if (existing.length > 0) {
-    workspace.revealLeaf(existing[0]);
+    await workspace.revealLeaf(existing[0]);
     return;
   }
 
@@ -55,7 +55,7 @@ export async function openBesideTagPane(deps: OpenBesideDeps): Promise<void> {
   if (tagLeaf) {
     const splitLeaf = workspace.createLeafBySplit(tagLeaf, 'vertical', false);
     await splitLeaf.setViewState({ type: curationViewType, active: true });
-    workspace.revealLeaf(splitLeaf);
+    await workspace.revealLeaf(splitLeaf);
     return;
   }
 

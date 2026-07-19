@@ -31,7 +31,7 @@ numbers, rule actions) are stale. Gate a release on the current sections, not th
 
 1. Install the BRAT plugin in the test vault.
 2. Add this repo as a beta plugin: `https://github.com/prisant-labs/obsidian-tag-visibility`.
-3. Pick the latest tag (the `release.yml` workflow attaches `main.js`, `manifest.json`, `styles.css`, `versions.json` to every tagged release).
+3. Pick the latest tag (the `release.yml` workflow attaches `main.js`, `manifest.json`, and `styles.css` to every tagged release).
 
 ## v1.0 manual BRAT smoke matrix
 

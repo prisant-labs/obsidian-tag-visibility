@@ -1,3 +1,6 @@
+// @vitest-environment happy-dom
+// (tagMeta.ts uses window.setTimeout / window.clearTimeout for popout-window
+// compatibility per the directory review; the node environment has no window.)
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CachedMetadata, Plugin, TFile } from 'obsidian';
 import { TagMetaManager } from '../src/storage/tagMeta';

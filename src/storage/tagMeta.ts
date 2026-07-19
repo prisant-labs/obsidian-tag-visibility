@@ -32,7 +32,7 @@ export class TagMetaManager extends Events {
   private reviewed?: ReviewedStore;
   private store = new Map<string, TagMeta>();
   private fileTags = new Map<string, Set<string>>();
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: number | null = null;
   private debounceMs = 5000;
 
   constructor(app: App, plugin: Plugin, reviewed?: ReviewedStore) {
@@ -177,10 +177,15 @@ export class TagMetaManager extends Events {
     const inlineTags = (cache?.tags ?? []).map((t) => t.tag);
     const allTags = tagsFromCache(cache);
     const inlineSet = new Set(inlineTags.map((t) => (t.startsWith('#') ? t.slice(1) : t)));
-    const fm = cache?.frontmatter?.tags;
+    const fm: unknown = cache?.frontmatter?.tags;
     const frontmatterSet = new Set<string>();
     if (typeof fm === 'string') frontmatterSet.add(fm);
-    else if (Array.isArray(fm)) for (const t of fm) frontmatterSet.add(t);
+    else if (Array.isArray(fm)) {
+      for (const t of fm as unknown[]) {
+        if (typeof t === 'string') frontmatterSet.add(t);
+        else if (t != null) frontmatterSet.add(String(t));
+      }
+    }
 
     const currentTags = new Set<string>(allTags);
     const sourcesByTag = new Map<string, TagSource[]>();
@@ -267,8 +272,8 @@ export class TagMetaManager extends Events {
   }
 
   private scheduleSave(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => {
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
       void this.flushNow();
     }, this.debounceMs);
   }
@@ -352,7 +357,7 @@ export class TagMetaManager extends Events {
 
   unload(): void {
     if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
+      window.clearTimeout(this.saveTimer);
       this.saveTimer = null;
       void this.flushNow();
     }

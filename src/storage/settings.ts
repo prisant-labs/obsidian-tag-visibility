@@ -145,7 +145,7 @@ export class SettingsManager {
     }
 
     const raw = ((rawData ?? {}) as LegacyV0Settings);
-    const incomingVersion = (raw.schemaVersion ?? 0) as number;
+    const incomingVersion = raw.schemaVersion ?? 0;
     this.incomingVersion = incomingVersion;
 
     if (incomingVersion > SCHEMA_VERSION) {
@@ -173,7 +173,7 @@ export class SettingsManager {
   }
 
   private migrate(raw: LegacyV0Settings): TagCuratorSettings {
-    const inferred = (raw.schemaVersion ?? 0) as number;
+    const inferred = raw.schemaVersion ?? 0;
     const nested = (raw as { settings?: Partial<TagCuratorSettings> }).settings;
     const base: Partial<TagCuratorSettings> = nested ?? raw;
     const merged: TagCuratorSettings = {

@@ -19,8 +19,10 @@ npm run lint && npm run typecheck && npm test && npm run build
 | Test | `vitest run` | The full unit suite passes (engine, storage migrations, all four observers, integrations, UI models). |
 | Build | `node esbuild.config.mjs production` | `main.js` builds, minified, sourcemap-free, with `obsidian`/`electron`/editor packages externalized. |
 
-CI additionally verifies the artifact quartet exists after the build: `main.js`, `manifest.json`,
-`styles.css`, `versions.json`.
+CI additionally verifies all four artifacts exist after the build: `main.js`, `manifest.json`,
+`styles.css`, `versions.json`. Only the first three are attached to releases; `versions.json`
+is consulted by Obsidian from the repository, and the directory validator rejects it as a
+release asset. Release assets also carry GitHub artifact attestations (build provenance).
 
 ## The three workflows
 

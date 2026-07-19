@@ -3,8 +3,10 @@ name: release
 # Fires on any tag push. Runs the full verification gate (lint, typecheck, test) at
 # the tagged commit, builds main.js (the only gitignored artifact; styles.css,
 # manifest.json, and versions.json are tracked source), verifies the tag matches the
-# manifest, and publishes the artifact quartet as a GitHub release so BRAT and the
-# community installer can fetch them.
+# manifest, and publishes manifest.json, main.js, and styles.css as a GitHub release
+# so BRAT and the community installer can fetch them. versions.json stays repo-only:
+# Obsidian consults it from the repository, and the directory validator flags it as
+# an unsupported release asset (review feedback, 2026-07-18).
 #
 # The gate runs here, not only in build.yml, because a tag can point at any commit,
 # not necessarily a green main. Re-running it means a tag on a non-green commit fails
@@ -19,6 +21,10 @@ on:
 
 permissions:
   contents: write
+  # For actions/attest-build-provenance: signs and publishes provenance for the
+  # release assets so users can verify they were built from this repo by CI.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -54,6 +60,14 @@ jobs:
             echo "::error::Tag ($TAG) does not match manifest.json version ($MANIFEST_VERSION). Run 'npm version' so version-bump.mjs syncs the manifest, then re-tag."
             exit 1
           fi
+      - name: Attest build provenance
+        # Signed provenance for the shipped artifacts (directory review
+        # recommendation). Pinned to a commit SHA like the release action.
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            main.js
+            styles.css
       - name: Create release
         # Pinned to a commit SHA (not the movable @v3 tag) to harden this
         # contents:write workflow against a repointed tag. Update deliberately.
@@ -63,7 +77,6 @@ jobs:
             manifest.json
             main.js
             styles.css
-            versions.json
           generate_release_notes: true
           # A tag with a pre-release suffix (e.g. 1.0.0-rc.1) is published as a
           # GitHub pre-release; a plain semver tag (1.0.0) is a full release.

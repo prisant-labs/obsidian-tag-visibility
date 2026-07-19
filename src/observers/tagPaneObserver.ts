@@ -69,9 +69,9 @@ export class TagPaneObserver extends ObserverBase {
   private attachLeaf(leaf: WorkspaceLeaf): void {
     const maybeDeferred = leaf as WorkspaceLeaf & {
       isDeferred?: boolean;
-      loadIfDeferred?: () => void;
+      loadIfDeferred?: () => Promise<void>;
     };
-    if (maybeDeferred.isDeferred) maybeDeferred.loadIfDeferred?.();
+    if (maybeDeferred.isDeferred) void maybeDeferred.loadIfDeferred?.();
     const view = leaf.view as Filterable & TagPaneViewInternals;
     const containerEl = view?.containerEl;
     if (!containerEl) return;

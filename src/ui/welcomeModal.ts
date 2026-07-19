@@ -113,12 +113,16 @@ export class WelcomeModal extends Modal {
       cls: 'tcw-btn',
       text: 'Start in preview mode',
     });
-    previewBtn.addEventListener('click', () => this.finish('preview'));
+    previewBtn.addEventListener('click', () => {
+      void this.finish('preview');
+    });
     const startBtn = foot.createEl('button', {
       cls: 'tcw-btn tcw-btn-accent',
       text: 'Start hiding tags',
     });
-    startBtn.addEventListener('click', () => this.finish('curating'));
+    startBtn.addEventListener('click', () => {
+      void this.finish('curating');
+    });
   }
 
   onClose(): void {

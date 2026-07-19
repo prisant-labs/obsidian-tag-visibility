@@ -514,7 +514,7 @@ export default class TagCuratorPlugin extends Plugin {
       if (!leaf) return;
       await leaf.setViewState({ type: CURATION_VIEW_TYPE });
     }
-    workspace.revealLeaf(leaf);
+    await workspace.revealLeaf(leaf);
     if (opts?.hiddenOnly) {
       const view = leaf.view;
       if (view && 'setHiddenOnly' in view) {

@@ -113,7 +113,7 @@ export abstract class ObserverBase {
   protected scheduleApply(): void {
     if (this.rafQueued) return;
     this.rafQueued = true;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.rafQueued = false;
       for (const container of this.containers) {
         // A closed leaf/view detaches its container, but nothing else removes
