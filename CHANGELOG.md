@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-18
+
+### Changed
+
+- The Notebook Navigator strikethrough no longer sets an explicit `text-decoration-thickness`; the default thickness renders the same line at UI font sizes, and dropping the property clears the directory review's CSS baseline warning (DR-15 in [docs/DIRECTORY-REVIEW.md](docs/DIRECTORY-REVIEW.md)). Visually identical; no code changes.
+
 ## [1.0.2] - 2026-07-18
 
 Directory-review hygiene pass: every automated-review warning that is safe to fix at the 1.9.10 floor, plus release hardening. No feature changes. The complete finding-by-finding record (DR-01 to DR-16, including what was deliberately kept and why) lives in [docs/DIRECTORY-REVIEW.md](docs/DIRECTORY-REVIEW.md).

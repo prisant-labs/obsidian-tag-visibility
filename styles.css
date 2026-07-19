@@ -1946,8 +1946,10 @@ select.tcr-select {
   opacity: 0.45;
 }
 .nn-tag.tc-nn-hidden .nn-navitem-name {
+  /* No explicit thickness: the default auto renders the same 1px line at UI
+     font sizes, and the explicit property tripped the directory's CSS baseline
+     lint (DR-15). */
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
 }
 
 /* Flag (preview mode): a plugin-owned highlight so the user can see
