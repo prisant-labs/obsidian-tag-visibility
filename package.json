@@ -21,7 +21,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.5.0",
+    "@types/node": "^22.20.1",
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
